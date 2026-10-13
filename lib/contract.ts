@@ -1,0 +1,340 @@
+import { z } from "zod";
+
+/**
+ * Shared API contract for the Decision-1 Security Demo.
+ * Request and response shapes live here so the UI and the route handlers
+ * validate the same objects. Question wording and fail-closed behavior are
+ * applied on the server; this module only describes the wire format.
+ */
+
+export const TABS = ["phishing", "soc", "mcp", "dlp", "arena"] as const;
+
+export const tabSchema = z.enum(TABS);
+export type Tab = z.infer<typeof tabSchema>;
+
+export const LIMITS = {
+  maxBodyBytes: 65_536,
+  maxHistoryRounds: 10,
+  arenaPrompt: 4_000,
+  phishingSender: 320,
+  phishingSubject: 300,
+  phishingBody: 20_000,
+  socAlertId: 128,
+  socTitle: 300,
+  socSeverity: 64,
+  socSource: 128,
+  socDescription: 8_000,
+  socTimestamp: 64,
+  socHost: 256,
+  socUser: 256,
+  mcpToolName: 128,
+  mcpArgsJson: 8_000,
+  mcpAgentContext: 8_000,
+  dlpPrompt: 20_000,
+  rationale: 2_000,
+  passcode: 200,
+} as const;
+
+/** Confidence below this is not a decision the closed tabs will act on. */
+export const CONFIDENCE_THRESHOLD = 0.7;
+
+export const FAIL_CLOSED_TABS = ["mcp", "dlp", "arena"] as const;
+export const FAIL_OPEN_TABS = ["phishing", "soc"] as const;
+
+export const tabPolicy = {
+  phishing: { failMode: "open", decisionType: "yesno" },
+  soc: { failMode: "open", decisionType: "choice" },
+  mcp: { failMode: "closed", decisionType: "yesno" },
+  dlp: { failMode: "closed", decisionType: "score" },
+  arena: { failMode: "closed", decisionType: "yesno" },
+} as const satisfies Record<
+  Tab,
+  { failMode: "open" | "closed"; decisionType: "yesno" | "choice" | "score" }
+>;
+
+export const SOC_OPTIONS = [
+  {
+    label: "benign",
+    description: "Expected activity, false positive, or no action required.",
+  },
+  {
+    label: "suspicious",
+    description: "Unusual activity that needs a person to review before action.",
+  },
+  {
+    label: "malicious",
+    description: "Confirmed or strongly indicated hostile activity.",
+  },
+] as const;
+
+export const DLP_LEVELS = [
+  { index: 0, label: "none" },
+  { index: 1, label: "low" },
+  { index: 2, label: "medium" },
+  { index: 3, label: "high" },
+  { index: 4, label: "critical" },
+] as const;
+
+export const DLP_SCORE_RANGE = { min: 0, max: 4 } as const;
+
+const boundedText = (max: number) => z.string().trim().min(1).max(max);
+
+export const phishingInputSchema = z
+  .object({
+    sender: boundedText(LIMITS.phishingSender),
+    subject: boundedText(LIMITS.phishingSubject),
+    body: boundedText(LIMITS.phishingBody),
+  })
+  .strict();
+
+export const socInputSchema = z
+  .object({
+    alertId: boundedText(LIMITS.socAlertId),
+    title: boundedText(LIMITS.socTitle),
+    severity: boundedText(LIMITS.socSeverity),
+    source: boundedText(LIMITS.socSource),
+    description: boundedText(LIMITS.socDescription),
+    timestamp: z.string().trim().min(1).max(LIMITS.socTimestamp).optional(),
+    host: z.string().trim().min(1).max(LIMITS.socHost).optional(),
+    user: z.string().trim().min(1).max(LIMITS.socUser).optional(),
+  })
+  .strict();
+
+export const mcpInputSchema = z
+  .object({
+    toolName: boundedText(LIMITS.mcpToolName),
+    args: z.record(z.string(), z.unknown()),
+    agentContext: z.string().max(LIMITS.mcpAgentContext),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    let encoded = "";
+    try {
+      encoded = JSON.stringify(value.args);
+    } catch {
+      ctx.addIssue({
+        code: "custom",
+        path: ["args"],
+        message: "Tool arguments must be JSON-serializable.",
+      });
+      return;
+    }
+    if (encoded.length > LIMITS.mcpArgsJson) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["args"],
+        message: `Tool arguments must be at most ${LIMITS.mcpArgsJson} characters when serialized.`,
+      });
+    }
+  });
+
+export const dlpInputSchema = z
+  .object({
+    prompt: boundedText(LIMITS.dlpPrompt),
+  })
+  .strict();
+
+export const arenaInputSchema = z
+  .object({
+    prompt: boundedText(LIMITS.arenaPrompt),
+  })
+  .strict();
+
+export const decideRequestSchema = z.discriminatedUnion("tab", [
+  z.object({ tab: z.literal("phishing"), input: phishingInputSchema }).strict(),
+  z.object({ tab: z.literal("soc"), input: socInputSchema }).strict(),
+  z.object({ tab: z.literal("mcp"), input: mcpInputSchema }).strict(),
+  z.object({ tab: z.literal("dlp"), input: dlpInputSchema }).strict(),
+  z.object({ tab: z.literal("arena"), input: arenaInputSchema }).strict(),
+]);
+
+export const yesNoDecisionSchema = z
+  .object({
+    type: z.literal("yesno"),
+    value: z.boolean(),
+  })
+  .strict();
+
+export const choiceOptionSchema = z
+  .object({
+    label: z.string().min(1),
+    score: z.number().min(0).max(1).optional(),
+  })
+  .strict();
+
+export const choiceDecisionSchema = z
+  .object({
+    type: z.literal("choice"),
+    value: z.string().min(1),
+    options: z.array(choiceOptionSchema).min(1),
+  })
+  .strict();
+
+export const scoreDecisionSchema = z
+  .object({
+    type: z.literal("score"),
+    value: z.number(),
+    min: z.number(),
+    max: z.number(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.min > value.max) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["min"],
+        message: "min must be less than or equal to max.",
+      });
+    }
+    if (value.value < value.min || value.value > value.max) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["value"],
+        message: "score must be inside min and max.",
+      });
+    }
+  });
+
+export const decisionSchema = z.discriminatedUnion("type", [
+  yesNoDecisionSchema,
+  choiceDecisionSchema,
+  scoreDecisionSchema,
+]);
+
+export const decisionStatusSchema = z.enum(["decided", "blocked", "undecided"]);
+export const decisionReasonSchema = z.enum(["timeout", "upstream", "lowconf"]);
+
+export const decideResponseSchema = z
+  .object({
+    decision: decisionSchema,
+    confidence: z.number().min(0).max(1),
+    rationale: z.string().max(LIMITS.rationale).optional(),
+    status: decisionStatusSchema,
+    reason: decisionReasonSchema.optional(),
+    latencyMs: z.number().nonnegative(),
+    requestId: z.string().uuid(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "decided" && value.reason !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["reason"],
+        message: "A decided response does not include a reason.",
+      });
+    }
+    if (value.status !== "decided" && value.reason === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["reason"],
+        message: "Blocked and undecided responses require a reason.",
+      });
+    }
+  });
+
+export const errorCodeSchema = z.enum([
+  "bad_request",
+  "unauthorized",
+  "rate_limited",
+  "upstream",
+]);
+
+export const API_ERROR_STATUS = {
+  bad_request: 400,
+  unauthorized: 401,
+  rate_limited: 429,
+  upstream: 502,
+} as const;
+
+export const apiErrorSchema = z
+  .object({
+    error: z
+      .object({
+        code: errorCodeSchema,
+        message: z.string().min(1),
+      })
+      .strict(),
+    requestId: z.string().uuid(),
+    retryAfterMs: z.number().int().nonnegative().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.error.code === "rate_limited" && value.retryAfterMs === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["retryAfterMs"],
+        message: "Rate limit errors include retryAfterMs.",
+      });
+    }
+  });
+
+export const arenaHistoryEntrySchema = z
+  .object({
+    prompt: boundedText(LIMITS.arenaPrompt),
+    verdict: decideResponseSchema,
+  })
+  .strict();
+
+export const arenaRoundRequestSchema = z
+  .object({
+    history: z.array(arenaHistoryEntrySchema).max(LIMITS.maxHistoryRounds).optional(),
+  })
+  .strict();
+
+export const arenaRoundResponseSchema = z
+  .object({
+    attack: z
+      .object({
+        prompt: boundedText(LIMITS.arenaPrompt),
+      })
+      .strict(),
+    verdict: decideResponseSchema,
+    round: z.number().int().min(1).max(LIMITS.maxHistoryRounds),
+  })
+  .strict();
+
+export const passcodeRequestSchema = z
+  .object({
+    passcode: z.string().min(1).max(LIMITS.passcode),
+  })
+  .strict();
+
+export const passcodeSuccessSchema = z
+  .object({
+    ok: z.literal(true),
+    requestId: z.string().uuid(),
+  })
+  .strict();
+
+export const arenaAttackFixtureSchema = z
+  .object({
+    id: z.string().regex(/^atk-\d{2}$/),
+    category: z.string().trim().min(1).max(64),
+    prompt: boundedText(LIMITS.arenaPrompt),
+  })
+  .strict();
+
+export const arenaAttackFixturesSchema = z.array(arenaAttackFixtureSchema).length(30);
+
+export type PhishingInput = z.infer<typeof phishingInputSchema>;
+export type SocInput = z.infer<typeof socInputSchema>;
+export type McpInput = z.infer<typeof mcpInputSchema>;
+export type DlpInput = z.infer<typeof dlpInputSchema>;
+export type ArenaInput = z.infer<typeof arenaInputSchema>;
+export type DecideRequest = z.infer<typeof decideRequestSchema>;
+export type YesNoDecision = z.infer<typeof yesNoDecisionSchema>;
+export type ChoiceOption = z.infer<typeof choiceOptionSchema>;
+export type ChoiceDecision = z.infer<typeof choiceDecisionSchema>;
+export type ScoreDecision = z.infer<typeof scoreDecisionSchema>;
+export type Decision = z.infer<typeof decisionSchema>;
+export type DecisionStatus = z.infer<typeof decisionStatusSchema>;
+export type DecisionReason = z.infer<typeof decisionReasonSchema>;
+export type DecideResponse = z.infer<typeof decideResponseSchema>;
+export type ErrorCode = z.infer<typeof errorCodeSchema>;
+export type ApiErrorBody = z.infer<typeof apiErrorSchema>;
+export type ArenaHistoryEntry = z.infer<typeof arenaHistoryEntrySchema>;
+export type ArenaRoundRequest = z.infer<typeof arenaRoundRequestSchema>;
+export type ArenaRoundResponse = z.infer<typeof arenaRoundResponseSchema>;
+export type PasscodeRequest = z.infer<typeof passcodeRequestSchema>;
+export type PasscodeSuccess = z.infer<typeof passcodeSuccessSchema>;
+export type ArenaAttackFixture = z.infer<typeof arenaAttackFixtureSchema>;
