@@ -8,7 +8,7 @@ import {
   type Decision,
   type Tab,
 } from "@/lib/contract";
-import { ApiError } from "@/lib/http";
+import { DecisionCallError } from "@/lib/upstream";
 
 export class InvalidOptionError extends Error {
   constructor() {
@@ -129,6 +129,25 @@ export function parseModelJudgment(tab: Tab, payload: unknown): ModelJudgment {
   }
 }
 
+/** Wrong-shaped answer. The parser must reject it as an upstream failure. */
+export function malformedPayload(): unknown {
+  return { answers: { verdict: { type: "noul", noul: "not-a-probability", leaked: "UPSTREAM_SHAPE_LEAK" } } };
+}
+
+/** Choice value outside the server template. The parser must reject the option. */
+export function badOptionPayload(): unknown {
+  return {
+    answers: {
+      verdict: {
+        type: "choice",
+        choice: "engineering",
+        confidence: 0.998,
+        probabilities: { engineering: 0.998 },
+      },
+    },
+  };
+}
+
 export function lowConfidencePayload(tab: Tab): unknown {
   switch (tabPolicy[tab].decisionType) {
     case "yesno":
@@ -233,7 +252,7 @@ function field(label: string, value: string): string {
 
 function parseNoul(verdict: unknown): ModelJudgment {
   const parsed = noulAnswerSchema.safeParse(pickFields(verdict, NOUL_FIELDS));
-  if (!parsed.success) throw new ApiError("upstream", "Upstream decision failed.");
+  if (!parsed.success) throw new DecisionCallError("upstream");
   const noul = parsed.data.noul;
   return {
     decision: { type: "yesno", value: noul >= 0.5 },
@@ -243,7 +262,7 @@ function parseNoul(verdict: unknown): ModelJudgment {
 
 function parseChoice(verdict: unknown): ModelJudgment {
   const parsed = choiceAnswerSchema.safeParse(pickFields(verdict, CHOICE_FIELDS));
-  if (!parsed.success) throw new ApiError("upstream", "Upstream decision failed.");
+  if (!parsed.success) throw new DecisionCallError("upstream");
   const labels = SOC_OPTIONS.map((option) => option.label);
   if (!labels.includes(parsed.data.choice as (typeof labels)[number])) throw new InvalidOptionError();
   const probabilities = templateProbabilities(parsed.data.probabilities, labels);
@@ -263,9 +282,9 @@ function parseChoice(verdict: unknown): ModelJudgment {
 
 function parseScore(verdict: unknown): ModelJudgment {
   const parsed = scoreAnswerSchema.safeParse(pickFields(verdict, SCORE_FIELDS));
-  if (!parsed.success) throw new ApiError("upstream", "Upstream decision failed.");
+  if (!parsed.success) throw new DecisionCallError("upstream");
   if (parsed.data.score < DLP_SCORE_RANGE.min || parsed.data.score > DLP_SCORE_RANGE.max) {
-    throw new ApiError("upstream", "Upstream decision failed.");
+    throw new DecisionCallError("upstream");
   }
   const levels = DLP_LEVELS.map((level) => String(level.index));
   if (!sameKeys(parsed.data.legend, levels)) throw new InvalidOptionError();
@@ -284,14 +303,14 @@ function parseScore(verdict: unknown): ModelJudgment {
 }
 
 function readVerdict(payload: unknown): unknown {
-  if (!isRecord(payload)) throw new ApiError("upstream", "Upstream decision failed.");
+  if (!isRecord(payload)) throw new DecisionCallError("upstream");
   const answers = payload.answers;
-  if (!isRecord(answers) || !("verdict" in answers)) throw new ApiError("upstream", "Upstream decision failed.");
+  if (!isRecord(answers) || !("verdict" in answers)) throw new DecisionCallError("upstream");
   return answers.verdict;
 }
 
 function pickFields(value: unknown, fields: readonly string[]): Record<string, unknown> {
-  if (!isRecord(value)) throw new ApiError("upstream", "Upstream decision failed.");
+  if (!isRecord(value)) throw new DecisionCallError("upstream");
   const picked: Record<string, unknown> = {};
   for (const field of fields) {
     if (field in value) picked[field] = value[field];
@@ -305,7 +324,7 @@ function templateProbabilities(raw: Record<string, number>, allowed: readonly st
     if (!allowedKeys.has(key)) throw new InvalidOptionError();
     const probability = raw[key];
     if (typeof probability !== "number" || !Number.isFinite(probability) || probability < 0 || probability > 1) {
-      throw new ApiError("upstream", "Upstream decision failed.");
+      throw new DecisionCallError("upstream");
     }
   }
   const probabilities: Record<string, number> = {};

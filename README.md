@@ -58,17 +58,17 @@ HTTP status for `POST /api/decide` and `POST /api/arena/round`:
 
 | Case | HTTP | Body |
 | --- | --- | --- |
-| Confident allow answer | 200 | `outcome: "allow"`, `reason: "ok"` |
-| Guardrail answer that is not the allow answer, confidence at least 0.7 | 200 | `outcome: "block"`, `reason: "policy_unsafe"` (mcp, arena) or `"score_threshold"` (dlp score ≥ 2) |
-| Confidence below 0.7 | 200 | `reason: "low_confidence"`. Guardrails `block`; phishing and soc are `undecided`. The validated answer is kept. |
-| Timeout or upstream transport/HTTP failure | 200 | `reason: "timeout"` or `"upstream_error"`. Guardrails `block`; phishing and soc are `undecided`. |
-| Choice or legend key outside the server template | 502 | decide response, `reason: "invalid_option"`. The bad label is not copied. Guardrails `block`; phishing and soc are `undecided`. |
-| Malformed or out-of-range model output | 502 | error envelope, model values are not copied |
-| Bad JSON, unknown fields, or oversized body (64 KiB) | 400 | `bad_request` |
-| Missing or invalid session cookie | 401 | `unauthorized` |
-| Rate limit, or the rate-limit store is unavailable | 429 | `rate_limited` and `retryAfterMs` |
+| Confident allow answer | 200 | Decide body. `outcome: "allow"`, `reason: "ok"` |
+| Guardrail answer that is not the allow answer, confidence at least 0.7 | 200 | Decide body. `outcome: "block"`, `reason: "policy_unsafe"` (mcp, arena) or `"score_threshold"` (dlp score ≥ 2) |
+| Confidence below 0.7 | 200 | Decide body. `reason: "low_confidence"`. Guardrails `block`; phishing and soc are `undecided`. The validated answer is kept. |
+| Timeout | 502 | Decide body. `reason: "timeout"`. Guardrails `block`; phishing and soc are `undecided`. |
+| Upstream transport or HTTP failure, or a malformed or out-of-range answer | 502 | Decide body. `reason: "upstream_error"`. Guardrails `block`; phishing and soc are `undecided`. Model values are not copied. |
+| Choice or legend key outside the server template | 502 | Decide body. `reason: "invalid_option"`. The bad label is not copied. Guardrails `block`; phishing and soc are `undecided`. |
+| Bad JSON, unknown fields, or oversized body (64 KiB) | 400 | Bare `{ error: { code: "bad_request", message }, requestId }` |
+| Missing or invalid session cookie | 401 | Bare `{ error: { code: "unauthorized", message }, requestId }` |
+| Rate limit, or the rate-limit store is unavailable | 429 | `{ error: { code: "rate_limited", message }, requestId, retryAfterMs }` |
 
-Treat `mcp`, `dlp`, and `arena` as blocked when `outcome` is `block` and on any error-envelope response. A timeout still returns 200 so the client can read `outcome` and `reason`.
+A decide body is `decision`, `confidence`, `outcome`, `reason`, `latencyMs`, and `requestId`. Timeout, upstream failure, a malformed answer, and an invalid option use HTTP 502 with that body, not the error envelope. Treat `mcp`, `dlp`, and `arena` as blocked when `outcome` is `block`.
 
 `POST /api/arena/round`
 
@@ -82,7 +82,15 @@ Treat `mcp`, `dlp`, and `arena` as blocked when `outcome` is `block` and on any 
 
 The server is stateless. It replays `fixtures/arena-attacks.json` unless `ARENA_LIVE_ATTACKER=1`. History is untrusted: more than 9 prior rounds (a 10th completed round cannot start another), prompts over 4,000 characters, and verdicts that do not match the decide schema are rejected with 400. The next fixture is chosen from the validated history length. The attack prompt is placed only in the delimited state, never in the question text.
 
-`x-demo-fault: timeout | upstream | lowconf` is honored only when `DEMO_FAULT_INJECTION=1`, `VERCEL_ENV` is not `production`, and the session cookie is valid. Those header values use the same path as a real failure and become `reason` `timeout`, `upstream_error`, or `low_confidence`. The production build fails when `DEMO_FAULT_INJECTION=1` and `VERCEL_ENV=production`.
+`x-demo-fault` is honored only when `DEMO_FAULT_INJECTION=1`, `VERCEL_ENV` is not `production`, and the session cookie is valid. The production build fails when `DEMO_FAULT_INJECTION=1` and `VERCEL_ENV=production`.
+
+| `x-demo-fault` | What is injected | Result |
+| --- | --- | --- |
+| `timeout` | The same timeout path as a real call | 502 decide body, `reason: "timeout"` |
+| `upstream` | The same upstream-failure path as a real call | 502 decide body, `reason: "upstream_error"` |
+| `lowconf` | A low-confidence answer through the parser | 200 decide body, `reason: "low_confidence"` |
+| `malformed` | An upstream response with the wrong shape, through the parser | 502 decide body, `reason: "upstream_error"` |
+| `badoption` | A choice value outside the server template, through the parser | 502 decide body, `reason: "invalid_option"` |
 
 `POST /api/auth/passcode`
 
@@ -92,7 +100,7 @@ The server is stateless. It replays `fixtures/arena-attacks.json` unless `ARENA_
 { ok: true, requestId: string }
 ```
 
-Error body (400, 401, 429, 502):
+Error body for bad input (400), a missing cookie (401), and rate limits (429). A bare 502 error envelope is reserved for failures that are not a settled Decision-1 answer, such as the live attacker:
 
 ```ts
 { error: { code: "bad_request" | "unauthorized" | "rate_limited" | "upstream"; message: string }; requestId: string; retryAfterMs?: number }

@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiError } from "@/lib/http";
 import { logDecision } from "@/lib/log";
 import { chooseRateLimitBackend, clientIp, enforceRateLimit } from "@/lib/ratelimit";
 import { DECISION_ENDPOINT, DecisionCallError, createDecisionCaller } from "@/lib/upstream";
@@ -38,12 +37,12 @@ describe("decision upstream", () => {
       fetchImpl: async () => new Response("not-json TEST_BEARER_TOKEN_VALUE", { status: 200 }),
       tokenProvider: async () => "TEST_BEARER_TOKEN_VALUE",
     });
-    await expect(malformed({})).rejects.toBeInstanceOf(ApiError);
+    await expect(malformed({})).rejects.toBeInstanceOf(DecisionCallError);
     try {
       await malformed({});
     } catch (error) {
-      expect(error).toBeInstanceOf(ApiError);
-      expect((error as ApiError).status).toBe(502);
+      expect(error).toBeInstanceOf(DecisionCallError);
+      expect((error as DecisionCallError).reason).toBe("upstream");
       expect((error as Error).message).not.toContain("TEST_BEARER_TOKEN_VALUE");
     }
   });
@@ -97,16 +96,32 @@ describe("rate limit and logs", () => {
 
   it("logs only the allowlisted fields", () => {
     let line = "";
-    logDecision({ requestId: "req-1", tab: "dlp", latencyMs: 15, decision: "score", status: "block", token: "nope" } as never, (value) => {
-      line = value;
-    });
+    logDecision(
+      {
+        requestId: "req-1",
+        tab: "dlp",
+        latencyMs: 15,
+        outcome: "block",
+        reason: "score_threshold",
+        decision: "score",
+        token: "nope",
+        input: "secret prompt",
+        body: "full response",
+      } as never,
+      (value) => {
+        line = value;
+      },
+    );
     expect(JSON.parse(line)).toEqual({
       requestId: "req-1",
       tab: "dlp",
       latencyMs: 15,
+      outcome: "block",
+      reason: "score_threshold",
       decision: "score",
-      status: "block",
     });
     expect(line).not.toContain("nope");
+    expect(line).not.toContain("secret prompt");
+    expect(line).not.toContain("full response");
   });
 });

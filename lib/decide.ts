@@ -6,7 +6,9 @@ import { applyPolicy, failureDecision, type SettledDecision } from "@/lib/policy
 import {
   buildSystemOneRequest,
   InvalidOptionError,
+  badOptionPayload,
   lowConfidencePayload,
+  malformedPayload,
   parseModelJudgment,
 } from "@/lib/questions";
 import { createDecisionCaller, DecisionCallError } from "@/lib/upstream";
@@ -38,6 +40,8 @@ async function loadUpstream(input: DecideRequest, options: DecideOptions): Promi
   if (options.fault === "timeout") throw new DecisionCallError("timeout");
   if (options.fault === "upstream") throw new DecisionCallError("upstream");
   if (options.fault === "lowconf") return lowConfidencePayload(input.tab);
+  if (options.fault === "malformed") return malformedPayload();
+  if (options.fault === "badoption") return badOptionPayload();
   const request = buildSystemOneRequest(input);
   return caller(options)(request);
 }

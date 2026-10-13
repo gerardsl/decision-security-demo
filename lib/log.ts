@@ -2,11 +2,13 @@ export type DecisionLog = {
   requestId: string;
   tab?: string;
   latencyMs?: number;
+  outcome?: string;
+  reason?: string;
+  /** Decision type only: yesno, choice, or score. */
   decision?: string;
-  status?: string;
 };
 
-const FIELDS = ["requestId", "tab", "latencyMs", "decision", "status"] as const;
+const FIELDS = ["requestId", "tab", "latencyMs", "outcome", "reason", "decision"] as const;
 
 export function logDecision(
   entry: DecisionLog,

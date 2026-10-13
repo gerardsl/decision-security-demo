@@ -26,7 +26,7 @@ export function failureDecision(tab: Tab, reason: DecisionReason): SettledDecisi
     confidence: 0,
     outcome: closed ? "block" : "undecided",
     reason,
-    httpStatus: reason === "invalid_option" ? 502 : 200,
+    httpStatus: reason === "timeout" || reason === "upstream_error" || reason === "invalid_option" ? 502 : 200,
   };
 }
 

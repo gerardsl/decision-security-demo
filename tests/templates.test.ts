@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DLP_SCORE_RANGE, SOC_OPTIONS } from "@/lib/contract";
-import { ApiError } from "@/lib/http";
+import { DecisionCallError } from "@/lib/upstream";
 import {
   InvalidOptionError,
   QUESTION_INSTRUCTIONS,
@@ -149,7 +149,7 @@ describe("question templates", () => {
           },
         },
       }),
-    ).toThrow(ApiError);
+    ).toThrow(DecisionCallError);
     expect(() =>
       parseModelJudgment("dlp", {
         answers: {

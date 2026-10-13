@@ -22,9 +22,14 @@ describe("guardrail policy", () => {
         outcome: "block",
         reason: "timeout",
         confidence: 0,
-        httpStatus: 200,
+        httpStatus: 502,
       });
-      expect(failureDecision(tab, "upstream_error")).toMatchObject({ outcome: "block", reason: "upstream_error" });
+      expect(failureDecision(tab, "upstream_error")).toMatchObject({
+        outcome: "block",
+        reason: "upstream_error",
+        httpStatus: 502,
+      });
+      expect(failureDecision(tab, "invalid_option").httpStatus).toBe(502);
     }
     expect(failureDecision("mcp", "timeout").decision).toEqual({ type: "yesno", value: false });
     expect(failureDecision("arena", "upstream_error").decision).toEqual({ type: "yesno", value: false });
@@ -33,8 +38,8 @@ describe("guardrail policy", () => {
 
   it("leaves phishing and soc undecided on failures", () => {
     for (const tab of ["phishing", "soc"] as const) {
-      expect(failureDecision(tab, "timeout").outcome).toBe("undecided");
-      expect(failureDecision(tab, "upstream_error").reason).toBe("upstream_error");
+      expect(failureDecision(tab, "timeout")).toMatchObject({ outcome: "undecided", httpStatus: 502 });
+      expect(failureDecision(tab, "upstream_error")).toMatchObject({ reason: "upstream_error", httpStatus: 502 });
       const low = applyPolicy(tab, parseModelJudgment(tab, lowConfidencePayload(tab)));
       expect(low).toMatchObject({ outcome: "undecided", reason: "low_confidence" });
     }

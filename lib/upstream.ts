@@ -1,7 +1,5 @@
 import "server-only";
 import { ClientSecretCredential } from "@azure/identity";
-import { ApiError } from "@/lib/http";
-
 export const DECISION_ENDPOINT =
   "https://decision-gerards-resource.services.ai.azure.com/providers/microsoft/v1/systemone";
 export const AZURE_TENANT_ID = "ad2e140d-9fac-4f68-9aee-70fac41f2ee7";
@@ -85,7 +83,7 @@ export function createDecisionCaller(options?: {
     try {
       return await response.json();
     } catch {
-      throw new ApiError("upstream", "Upstream decision failed.");
+      throw new DecisionCallError("upstream");
     }
   };
 }

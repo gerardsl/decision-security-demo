@@ -32,8 +32,9 @@ export async function POST(request: Request): Promise<Response> {
       requestId,
       tab: "arena",
       latencyMs: checked.data.verdict.latencyMs,
+      outcome: checked.data.verdict.outcome,
+      reason: checked.data.verdict.reason,
       decision: checked.data.verdict.decision.type,
-      status: checked.data.verdict.outcome,
     });
     return Response.json(checked.data, { status: played.verdict.httpStatus });
   } catch (error) {
@@ -42,7 +43,6 @@ export async function POST(request: Request): Promise<Response> {
       requestId,
       tab: "arena",
       latencyMs: Date.now() - started,
-      status: apiError.code,
     });
     return jsonError(requestId, apiError);
   }

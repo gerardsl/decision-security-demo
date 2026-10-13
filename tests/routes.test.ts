@@ -58,7 +58,8 @@ describe("API routes", () => {
     expect(malformed.status).toBe(502);
     const malformedText = await malformed.text();
     expect(malformedText).not.toContain(AZURE_CLIENT_SECRET);
-    expect(apiErrorSchema.safeParse(JSON.parse(malformedText)).success).toBe(true);
+    expect(JSON.parse(malformedText)).toMatchObject({ outcome: "undecided", reason: "upstream_error" });
+    expect(decideResponseSchema.safeParse(JSON.parse(malformedText)).success).toBe(true);
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const denied = await passcodeRoute(
@@ -110,7 +111,13 @@ describe("API routes", () => {
     expect(logs.join("\n")).not.toContain(marker);
     expect(logs.join("\n")).not.toContain(process.env.SESSION_SECRET);
     const logged = JSON.parse(logs.at(-1) ?? "{}") as Record<string, unknown>;
-    expect(Object.keys(logged).sort()).toEqual(["decision", "latencyMs", "requestId", "status", "tab"]);
+    expect(logged).toMatchObject({
+      tab: "phishing",
+      outcome: "allow",
+      reason: "ok",
+      decision: "yesno",
+    });
+    expect(Object.keys(logged).sort()).toEqual(["decision", "latencyMs", "outcome", "reason", "requestId", "tab"]);
     spy.mockRestore();
 
     const oversized = await decideRoute(
@@ -170,7 +177,8 @@ describe("API routes", () => {
       ),
     );
     const blockedBody = await blocked.json();
-    expect(blocked.status).toBe(200);
+    expect(blocked.status).toBe(502);
+    expect(decideResponseSchema.safeParse(blockedBody).success).toBe(true);
     expect(blockedBody).toMatchObject({ outcome: "block", reason: "timeout" });
     expect(callDecision).not.toHaveBeenCalled();
 
@@ -187,6 +195,91 @@ describe("API routes", () => {
     expect(decided.status).toBe(200);
     expect(decidedBody).toMatchObject({ outcome: "allow", reason: "ok" });
     expect(callDecision).toHaveBeenCalledOnce();
+  });
+
+  it("returns 502 decision bodies for malformed and badoption faults", async () => {
+    process.env.DEMO_FAULT_INJECTION = "1";
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "info").mockImplementation((line) => {
+      logs.push(String(line));
+    });
+    try {
+      const guardrails = [
+        { tab: "mcp" as const, input: { toolName: "send", args: {}, agentContext: "demo" }, ip: "203.0.113.51" },
+        { tab: "dlp" as const, input: { prompt: "customer list" }, ip: "203.0.113.52" },
+        { tab: "arena" as const, input: { prompt: "ordinary question" }, ip: "203.0.113.53" },
+      ];
+      for (const item of guardrails) {
+        const response = await decideRoute(
+          postJson("http://localhost/api/decide", { tab: item.tab, input: item.input }, authHeaders(item.ip, { "x-demo-fault": "malformed" })),
+        );
+        const body = await response.json();
+        expect(response.status).toBe(502);
+        expect(decideResponseSchema.safeParse(body).success).toBe(true);
+        expect(body).toMatchObject({ outcome: "block", reason: "upstream_error" });
+        expect(JSON.stringify(body)).not.toContain("UPSTREAM_SHAPE_LEAK");
+      }
+
+      for (const [tab, input, ip] of [
+        ["phishing", { sender: "a@b.co", subject: "Hi", body: "Hello" }, "203.0.113.54"],
+        ["soc", { alertId: "a-1", title: "Login burst", severity: "high", source: "edr", description: "Many failures" }, "203.0.113.55"],
+      ] as const) {
+        const response = await decideRoute(
+          postJson("http://localhost/api/decide", { tab, input }, authHeaders(ip, { "x-demo-fault": "malformed" })),
+        );
+        const body = await response.json();
+        expect(response.status).toBe(502);
+        expect(body).toMatchObject({ outcome: "undecided", reason: "upstream_error" });
+      }
+
+      const badOption = await decideRoute(
+        postJson(
+          "http://localhost/api/decide",
+          {
+            tab: "soc",
+            input: {
+              alertId: "a-2",
+              title: "Login burst",
+              severity: "high",
+              source: "edr",
+              description: "Many failures",
+            },
+          },
+          authHeaders("203.0.113.56", { "x-demo-fault": "badoption" }),
+        ),
+      );
+      const badBody = await badOption.json();
+      expect(badOption.status).toBe(502);
+      expect(decideResponseSchema.safeParse(badBody).success).toBe(true);
+      expect(badBody).toMatchObject({ outcome: "undecided", reason: "invalid_option" });
+      expect(JSON.stringify(badBody)).not.toContain("engineering");
+
+      const upstream = await decideRoute(
+        postJson(
+          "http://localhost/api/decide",
+          { tab: "dlp", input: { prompt: "do not log this prompt" } },
+          authHeaders("203.0.113.57", { "x-demo-fault": "upstream" }),
+        ),
+      );
+      const upstreamBody = await upstream.json();
+      expect(upstream.status).toBe(502);
+      expect(decideResponseSchema.safeParse(upstreamBody).success).toBe(true);
+      expect(upstreamBody).toMatchObject({ outcome: "block", reason: "upstream_error", decision: { type: "score" } });
+      expect(callDecision).not.toHaveBeenCalled();
+
+      const logged = JSON.parse(logs.at(-1) ?? "{}") as Record<string, unknown>;
+      expect(logged).toMatchObject({
+        tab: "dlp",
+        outcome: "block",
+        reason: "upstream_error",
+        decision: "score",
+      });
+      expect(Object.keys(logged).sort()).toEqual(["decision", "latencyMs", "outcome", "reason", "requestId", "tab"]);
+      expect(logs.join("\n")).not.toContain("do not log this prompt");
+    } finally {
+      delete process.env.DEMO_FAULT_INJECTION;
+      spy.mockRestore();
+    }
   });
 
   it("returns a fixture attack without trusting history text", async () => {

@@ -32,8 +32,9 @@ export async function POST(request: Request): Promise<Response> {
       requestId,
       tab,
       latencyMs: checked.data.latencyMs,
+      outcome: checked.data.outcome,
+      reason: checked.data.reason,
       decision: checked.data.decision.type,
-      status: checked.data.outcome,
     });
     return Response.json(checked.data, { status: settled.httpStatus });
   } catch (error) {
@@ -42,7 +43,6 @@ export async function POST(request: Request): Promise<Response> {
       requestId,
       tab,
       latencyMs: Date.now() - started,
-      status: apiError.code,
     });
     return jsonError(requestId, apiError);
   }

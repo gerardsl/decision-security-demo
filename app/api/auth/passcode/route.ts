@@ -20,14 +20,13 @@ export async function POST(request: Request): Promise<Response> {
     const body = passcodeSuccessSchema.parse({ ok: true, requestId });
     const response = NextResponse.json(body);
     response.cookies.set(cookie.name, cookie.value, cookie.options);
-    logDecision({ requestId, latencyMs: Date.now() - started, status: "authenticated" });
+    logDecision({ requestId, latencyMs: Date.now() - started });
     return response;
   } catch (error) {
     const apiError = error instanceof ApiError ? error : new ApiError("upstream", "Upstream decision failed.");
     logDecision({
       requestId,
       latencyMs: Date.now() - started,
-      status: apiError.code,
     });
     return jsonError(requestId, apiError);
   }
