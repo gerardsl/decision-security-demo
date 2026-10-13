@@ -91,6 +91,7 @@ The server is stateless. It replays `fixtures/arena-attacks.json` unless `ARENA_
 | `lowconf` | A low-confidence answer through the parser | 200 decide body, `reason: "low_confidence"` |
 | `malformed` | An upstream response with the wrong shape, through the parser | 502 decide body, `reason: "upstream_error"` |
 | `badoption` | A choice value outside the server template, through the parser | 502 decide body, `reason: "invalid_option"` |
+| `badlegend` | A DLP score whose legend keys are not `0` through `4`, through the parser | 502 decide body, `outcome: "block"`, `reason: "invalid_option"` |
 
 `POST /api/auth/passcode`
 

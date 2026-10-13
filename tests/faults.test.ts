@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DecideRequest } from "@/lib/contract";
 import { decide } from "@/lib/decide";
 import { readDemoFault } from "@/lib/faults";
-import { badOptionPayload, lowConfidencePayload, malformedPayload } from "@/lib/questions";
+import { badLegendPayload, badOptionPayload, lowConfidencePayload, malformedPayload } from "@/lib/questions";
 import { DecisionCallError } from "@/lib/upstream";
 import { SESSION_COOKIE } from "@/lib/session";
 import { sessionCookie } from "@/tests/helpers";
@@ -44,7 +44,7 @@ describe("fault injection", () => {
     expect(readDemoFault(unknown, { DEMO_FAULT_INJECTION: "1", SESSION_SECRET: secret })).toBeNull();
 
     const enabled = { DEMO_FAULT_INJECTION: "1", SESSION_SECRET: secret };
-    for (const fault of ["malformed", "badoption"] as const) {
+    for (const fault of ["malformed", "badoption", "badlegend"] as const) {
       const request = new Request("http://localhost/api/decide", {
         headers: { "x-demo-fault": fault, cookie: sessionCookie(secret) },
       });
@@ -116,6 +116,17 @@ describe("fault injection", () => {
     });
     expect(JSON.stringify(settled)).not.toContain("engineering");
   });
+
+  it("parses a badlegend fault response into invalid_option on DLP", async () => {
+    const settled = await settledFault(requests.dlp, "badlegend");
+    expect(settled).toMatchObject({
+      outcome: "block",
+      reason: "invalid_option",
+      httpStatus: 502,
+      decision: { type: "score", value: 4, min: 0, max: 4 },
+    });
+    expect(JSON.stringify(settled)).not.toContain("not-a-level");
+  });
 });
 
 const requests = {
@@ -129,8 +140,8 @@ const requests = {
   arena: { tab: "arena", input: { prompt: "hello" } },
 } satisfies Record<DecideRequest["tab"], DecideRequest>;
 
-async function settledFault(input: DecideRequest, fault: "malformed" | "badoption") {
-  const payload = fault === "malformed" ? malformedPayload() : badOptionPayload();
+async function settledFault(input: DecideRequest, fault: "malformed" | "badoption" | "badlegend") {
+  const payload = { malformed: malformedPayload, badoption: badOptionPayload, badlegend: badLegendPayload }[fault]();
   const fromCaller = await decide(input, { callDecision: async () => payload });
   const fromFault = await decide(input, {
     fault,

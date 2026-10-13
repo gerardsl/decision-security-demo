@@ -134,6 +134,21 @@ export function malformedPayload(): unknown {
   return { answers: { verdict: { type: "noul", noul: "not-a-probability", leaked: "UPSTREAM_SHAPE_LEAK" } } };
 }
 
+/** DLP legend keys outside 0..4. The score parser must reject the legend. */
+export function badLegendPayload(): unknown {
+  return {
+    answers: {
+      verdict: {
+        type: "score",
+        score: 1.5,
+        confidence: 0.95,
+        legend: { "0": "none", "1": "low", "2": "medium", "3": "high", "5": "not-a-level" },
+        probabilities: { "0": 0.2, "1": 0.2, "2": 0.2, "3": 0.2, "4": 0.2 },
+      },
+    },
+  };
+}
+
 /** Choice value outside the server template. The parser must reject the option. */
 export function badOptionPayload(): unknown {
   return {

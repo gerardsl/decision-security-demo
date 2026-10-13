@@ -1,6 +1,6 @@
 import { MIN_SESSION_SECRET_LENGTH, readCookie, SESSION_COOKIE, verifySessionValue } from "@/lib/session";
 
-export const DEMO_FAULTS = ["timeout", "upstream", "lowconf", "malformed", "badoption"] as const;
+export const DEMO_FAULTS = ["timeout", "upstream", "lowconf", "malformed", "badoption", "badlegend"] as const;
 export type DemoFault = (typeof DEMO_FAULTS)[number];
 
 export function readDemoFault(

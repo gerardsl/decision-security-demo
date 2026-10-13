@@ -6,6 +6,7 @@ import { applyPolicy, failureDecision, type SettledDecision } from "@/lib/policy
 import {
   buildSystemOneRequest,
   InvalidOptionError,
+  badLegendPayload,
   badOptionPayload,
   lowConfidencePayload,
   malformedPayload,
@@ -42,6 +43,7 @@ async function loadUpstream(input: DecideRequest, options: DecideOptions): Promi
   if (options.fault === "lowconf") return lowConfidencePayload(input.tab);
   if (options.fault === "malformed") return malformedPayload();
   if (options.fault === "badoption") return badOptionPayload();
+  if (options.fault === "badlegend") return badLegendPayload();
   const request = buildSystemOneRequest(input);
   return caller(options)(request);
 }

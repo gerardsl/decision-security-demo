@@ -254,6 +254,19 @@ describe("API routes", () => {
       expect(badBody).toMatchObject({ outcome: "undecided", reason: "invalid_option" });
       expect(JSON.stringify(badBody)).not.toContain("engineering");
 
+      const badLegend = await decideRoute(
+        postJson(
+          "http://localhost/api/decide",
+          { tab: "dlp", input: { prompt: "customer list" } },
+          authHeaders("203.0.113.58", { "x-demo-fault": "badlegend" }),
+        ),
+      );
+      const legendBody = await badLegend.json();
+      expect(badLegend.status).toBe(502);
+      expect(decideResponseSchema.safeParse(legendBody).success).toBe(true);
+      expect(legendBody).toMatchObject({ outcome: "block", reason: "invalid_option", decision: { type: "score" } });
+      expect(JSON.stringify(legendBody)).not.toContain("not-a-level");
+
       const upstream = await decideRoute(
         postJson(
           "http://localhost/api/decide",
