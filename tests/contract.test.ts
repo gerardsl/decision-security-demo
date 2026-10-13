@@ -45,13 +45,27 @@ describe("contract schemas", () => {
     ).toBe(false);
   });
 
-  it("requires a reason only when the decision was not made", () => {
+  it("requires reason ok only for an allow outcome", () => {
     expect(decideResponseSchema.safeParse(verdict()).success).toBe(true);
-    expect(decideResponseSchema.safeParse(verdict({ reason: "lowconf" })).success).toBe(false);
+    expect(decideResponseSchema.safeParse(verdict({ reason: "low_confidence" })).success).toBe(false);
     expect(
-      decideResponseSchema.safeParse(verdict({ status: "blocked", reason: "timeout", confidence: 0 })).success,
+      decideResponseSchema.safeParse(
+        verdict({ outcome: "block", reason: "timeout", confidence: 0 }),
+      ).success,
     ).toBe(true);
-    expect(decideResponseSchema.safeParse(verdict({ status: "undecided" })).success).toBe(false);
+    expect(decideResponseSchema.safeParse(verdict({ outcome: "undecided", reason: "ok" })).success).toBe(false);
+    expect(
+      decideResponseSchema.safeParse({
+        ...verdict(),
+        decision: {
+          type: "score",
+          value: 2.97,
+          min: 0,
+          max: 4,
+          probabilities: { "0": 0.01, "1": 0.02, "2": 0.1, "3": 0.8, "4": 0.07 },
+        },
+      }).success,
+    ).toBe(true);
   });
 
   it("requires retryAfterMs on rate-limit errors", () => {

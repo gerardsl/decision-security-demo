@@ -31,7 +31,8 @@ export function verdict(overrides: Partial<DecideResponse> = {}): DecideResponse
   return {
     decision: { type: "yesno", value: true },
     confidence: 0.91,
-    status: "decided",
+    outcome: "allow",
+    reason: "ok",
     latencyMs: 12,
     requestId: crypto.randomUUID(),
     ...overrides,

@@ -124,6 +124,42 @@ describe("API routes", () => {
     expect(await oversized.json()).toMatchObject({ error: { code: "bad_request", message: "Request body is too large." } });
   });
 
+  it("returns 502 when a choice key is outside the server template", async () => {
+    callDecision.mockResolvedValueOnce({
+      model: "microsoft-decision-1",
+      answers: {
+        verdict: {
+          type: "choice",
+          choice: "engineering",
+          confidence: 0.998,
+          probabilities: { engineering: 0.998, benign: 0.002 },
+          extra: "not-copied",
+        },
+      },
+    });
+    const response = await decideRoute(
+      postJson(
+        "http://localhost/api/decide",
+        {
+          tab: "soc",
+          input: {
+            alertId: "a-1",
+            title: "Login burst",
+            severity: "high",
+            source: "edr",
+            description: "Many failures",
+          },
+        },
+        authHeaders("203.0.113.48"),
+      ),
+    );
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body).toMatchObject({ outcome: "undecided", reason: "invalid_option" });
+    expect(JSON.stringify(body)).not.toContain("engineering");
+    expect(JSON.stringify(body)).not.toContain("microsoft-decision-1");
+  });
+
   it("applies a fault header only when fault injection is enabled", async () => {
     process.env.DEMO_FAULT_INJECTION = "1";
     const blocked = await decideRoute(
@@ -135,7 +171,7 @@ describe("API routes", () => {
     );
     const blockedBody = await blocked.json();
     expect(blocked.status).toBe(200);
-    expect(blockedBody).toMatchObject({ status: "blocked", reason: "timeout" });
+    expect(blockedBody).toMatchObject({ outcome: "block", reason: "timeout" });
     expect(callDecision).not.toHaveBeenCalled();
 
     delete process.env.DEMO_FAULT_INJECTION;
@@ -149,7 +185,7 @@ describe("API routes", () => {
     );
     const decidedBody = await decided.json();
     expect(decided.status).toBe(200);
-    expect(decidedBody.status).toBe("decided");
+    expect(decidedBody).toMatchObject({ outcome: "allow", reason: "ok" });
     expect(callDecision).toHaveBeenCalledOnce();
   });
 
@@ -161,7 +197,7 @@ describe("API routes", () => {
     const body = await response.json();
     expect(body.round).toBe(1);
     expect(body.attack.prompt.length).toBeGreaterThan(0);
-    expect(body.verdict.status).toBe("decided");
+    expect(body.verdict).toMatchObject({ outcome: "allow", reason: "ok" });
     const judged = callDecision.mock.calls[0]?.[0] as { questions: { verdict: { instructions: string } } };
     expect(judged.questions.verdict.instructions).not.toContain(body.attack.prompt);
   });

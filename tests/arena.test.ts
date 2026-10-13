@@ -18,7 +18,7 @@ describe("arena history", () => {
     expect(() => parseArenaHistory({ history: [{ prompt: "x".repeat(4001), verdict: verdict() }] })).toThrow(ApiError);
     expect(() =>
       parseArenaHistory({
-        history: [{ prompt: "ok", verdict: verdict({ status: "decided", reason: "lowconf" }) }],
+        history: [{ prompt: "ok", verdict: verdict({ outcome: "allow", reason: "low_confidence" }) }],
       }),
     ).toThrow(ApiError);
     const full = Array.from({ length: 10 }, () => ({ prompt: "round", verdict: verdict() }));

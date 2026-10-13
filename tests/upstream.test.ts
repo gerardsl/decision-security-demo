@@ -97,7 +97,7 @@ describe("rate limit and logs", () => {
 
   it("logs only the allowlisted fields", () => {
     let line = "";
-    logDecision({ requestId: "req-1", tab: "dlp", latencyMs: 15, decision: "score", status: "blocked", token: "nope" } as never, (value) => {
+    logDecision({ requestId: "req-1", tab: "dlp", latencyMs: 15, decision: "score", status: "block", token: "nope" } as never, (value) => {
       line = value;
     });
     expect(JSON.parse(line)).toEqual({
@@ -105,7 +105,7 @@ describe("rate limit and logs", () => {
       tab: "dlp",
       latencyMs: 15,
       decision: "score",
-      status: "blocked",
+      status: "block",
     });
     expect(line).not.toContain("nope");
   });

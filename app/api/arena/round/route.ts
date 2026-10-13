@@ -20,10 +20,10 @@ export async function POST(request: Request): Promise<Response> {
       verdict: {
         decision: played.verdict.decision,
         confidence: played.verdict.confidence,
-        status: played.verdict.status,
+        outcome: played.verdict.outcome,
+        reason: played.verdict.reason,
         latencyMs: Date.now() - started,
         requestId,
-        ...(played.verdict.reason ? { reason: played.verdict.reason } : {}),
       },
     };
     const checked = arenaRoundResponseSchema.safeParse(response);
@@ -33,9 +33,9 @@ export async function POST(request: Request): Promise<Response> {
       tab: "arena",
       latencyMs: checked.data.verdict.latencyMs,
       decision: checked.data.verdict.decision.type,
-      status: checked.data.verdict.status,
+      status: checked.data.verdict.outcome,
     });
-    return Response.json(checked.data);
+    return Response.json(checked.data, { status: played.verdict.httpStatus });
   } catch (error) {
     const apiError = error instanceof ApiError ? error : new ApiError("upstream", "Upstream decision failed.");
     logDecision({

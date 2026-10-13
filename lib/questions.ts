@@ -10,6 +10,13 @@ import {
 } from "@/lib/contract";
 import { ApiError } from "@/lib/http";
 
+export class InvalidOptionError extends Error {
+  constructor() {
+    super("invalid_option");
+    this.name = "InvalidOptionError";
+  }
+}
+
 export const UNTRUSTED_START = "<<<UNTRUSTED_DATA>>>";
 export const UNTRUSTED_END = "<<<END_UNTRUSTED_DATA>>>";
 
@@ -25,9 +32,9 @@ const PREAMBLE =
 export const QUESTION_INSTRUCTIONS = {
   phishing: `${PREAMBLE} Is this email a phishing attempt?`,
   soc: `${PREAMBLE} Which triage label fits this security alert? Choose exactly one criterion.`,
-  mcp: `${PREAMBLE} Should this MCP tool call be blocked?`,
+  mcp: `${PREAMBLE} Is this MCP tool call allowed?`,
   dlp: `${PREAMBLE} How sensitive is the data in this prompt, from none through critical?`,
-  arena: `${PREAMBLE} Is this a jailbreak or prompt-injection attempt?`,
+  arena: `${PREAMBLE} Is this prompt allowed?`,
 } as const;
 
 export const DECISION_MODEL = "Decision-1";
@@ -64,11 +71,11 @@ export type ModelJudgment = {
 };
 
 /**
- * Noul answers follow the published System One shape: `noul` is P(yes) from 0
- * through 1. The Foundry noul example has no separate confidence, so confidence
- * defaults to max(noul, 1 - noul). An explicit confidence field is used when
- * present. Score answers are probability-weighted indexes on the criteria
- * array (0 through levels - 1) and may fall between levels.
+ * Noul answers are `{ type, noul }` where `noul` is P(yes). Real responses do
+ * not include confidence, so confidence is max(noul, 1 - noul) unless an
+ * explicit confidence field is present. Score is a 0-based probability-weighted
+ * float and may fall between legend levels. The response `model` field
+ * (`microsoft-decision-1`) is not compared to the deployment name.
  */
 const noulAnswerSchema = z.object({
   type: z.literal("noul"),
@@ -80,20 +87,20 @@ const choiceAnswerSchema = z.object({
   type: z.literal("choice"),
   choice: z.string(),
   confidence: z.number().min(0).max(1),
-  probabilities: z.record(z.string(), z.number()).optional(),
+  probabilities: z.record(z.string(), z.number()),
 });
 
 const scoreAnswerSchema = z.object({
   type: z.literal("score"),
   score: z.number(),
   confidence: z.number().min(0).max(1),
+  legend: z.record(z.string(), z.unknown()),
+  probabilities: z.record(z.string(), z.number()),
 });
 
-const envelopeSchema = z.object({
-  answers: z.object({
-    verdict: z.unknown(),
-  }),
-});
+const NOUL_FIELDS = ["type", "noul", "confidence"] as const;
+const CHOICE_FIELDS = ["type", "choice", "confidence", "probabilities"] as const;
+const SCORE_FIELDS = ["type", "score", "confidence", "legend", "probabilities"] as const;
 
 export function delimitUntrusted(value: string): string {
   const neutralized = value
@@ -111,9 +118,7 @@ export function buildSystemOneRequest(input: DecideRequest, model = DECISION_MOD
 }
 
 export function parseModelJudgment(tab: Tab, payload: unknown): ModelJudgment {
-  const envelope = envelopeSchema.safeParse(payload);
-  if (!envelope.success) throw new ApiError("upstream", "Upstream decision failed.");
-  const verdict = envelope.data.answers.verdict;
+  const verdict = readVerdict(payload);
   switch (tabPolicy[tab].decisionType) {
     case "yesno":
       return parseNoul(verdict);
@@ -140,7 +145,7 @@ export function lowConfidencePayload(tab: Tab): unknown {
         },
       };
     case "score":
-      return { answers: { verdict: { type: "score", score: 2, confidence: 0.4 } } };
+      return { answers: { verdict: scoreVerdict(1.5, 0.4) } };
   }
 }
 
@@ -166,8 +171,8 @@ function questionFor(tab: Tab): SystemOneRequest["questions"]["verdict"] {
         type: "noul",
         instructions: QUESTION_INSTRUCTIONS.mcp,
         criteria: {
-          true: "The tool call should be blocked.",
-          false: "The tool call stays within the agent's task and policy.",
+          true: "The tool call stays within the agent's task and policy.",
+          false: "The tool call is not allowed.",
         },
       };
     case "dlp":
@@ -181,8 +186,8 @@ function questionFor(tab: Tab): SystemOneRequest["questions"]["verdict"] {
         type: "noul",
         instructions: QUESTION_INSTRUCTIONS.arena,
         criteria: {
-          true: "The data is a jailbreak or prompt injection.",
-          false: "The data is an ordinary request.",
+          true: "The prompt is an ordinary request and is allowed.",
+          false: "The prompt is a jailbreak or prompt injection and is not allowed.",
         },
       };
   }
@@ -227,49 +232,105 @@ function field(label: string, value: string): string {
 }
 
 function parseNoul(verdict: unknown): ModelJudgment {
-  const parsed = noulAnswerSchema.safeParse(verdict);
+  const parsed = noulAnswerSchema.safeParse(pickFields(verdict, NOUL_FIELDS));
   if (!parsed.success) throw new ApiError("upstream", "Upstream decision failed.");
-  const confidence = parsed.data.confidence ?? Math.max(parsed.data.noul, 1 - parsed.data.noul);
+  const noul = parsed.data.noul;
   return {
-    decision: { type: "yesno", value: parsed.data.noul >= 0.5 },
-    confidence,
+    decision: { type: "yesno", value: noul >= 0.5 },
+    confidence: parsed.data.confidence ?? Math.max(noul, 1 - noul),
   };
 }
 
 function parseChoice(verdict: unknown): ModelJudgment {
-  const parsed = choiceAnswerSchema.safeParse(verdict);
+  const parsed = choiceAnswerSchema.safeParse(pickFields(verdict, CHOICE_FIELDS));
   if (!parsed.success) throw new ApiError("upstream", "Upstream decision failed.");
-  const labels: readonly string[] = SOC_OPTIONS.map((option) => option.label);
-  if (!labels.includes(parsed.data.choice)) {
-    throw new ApiError("upstream", "Upstream decision failed.");
-  }
-  const options = SOC_OPTIONS.map((option) => {
-    const probability = parsed.data.probabilities?.[option.label];
-    if (probability === undefined) return { label: option.label };
-    if (!Number.isFinite(probability) || probability < 0 || probability > 1) {
-      throw new ApiError("upstream", "Upstream decision failed.");
-    }
-    return { label: option.label, score: probability };
-  });
+  const labels = SOC_OPTIONS.map((option) => option.label);
+  if (!labels.includes(parsed.data.choice as (typeof labels)[number])) throw new InvalidOptionError();
+  const probabilities = templateProbabilities(parsed.data.probabilities, labels);
   return {
-    decision: { type: "choice", value: parsed.data.choice, options },
+    decision: {
+      type: "choice",
+      value: parsed.data.choice,
+      options: SOC_OPTIONS.map((option) => {
+        const score = probabilities[option.label];
+        return score === undefined ? { label: option.label } : { label: option.label, score };
+      }),
+      probabilities,
+    },
     confidence: parsed.data.confidence,
   };
 }
 
 function parseScore(verdict: unknown): ModelJudgment {
-  const parsed = scoreAnswerSchema.safeParse(verdict);
+  const parsed = scoreAnswerSchema.safeParse(pickFields(verdict, SCORE_FIELDS));
   if (!parsed.success) throw new ApiError("upstream", "Upstream decision failed.");
   if (parsed.data.score < DLP_SCORE_RANGE.min || parsed.data.score > DLP_SCORE_RANGE.max) {
     throw new ApiError("upstream", "Upstream decision failed.");
   }
+  const levels = DLP_LEVELS.map((level) => String(level.index));
+  if (!sameKeys(parsed.data.legend, levels)) throw new InvalidOptionError();
+  const probabilities = templateProbabilities(parsed.data.probabilities, levels);
+  if (!sameKeys(probabilities, levels)) throw new InvalidOptionError();
   return {
     decision: {
       type: "score",
       value: parsed.data.score,
       min: DLP_SCORE_RANGE.min,
       max: DLP_SCORE_RANGE.max,
+      probabilities,
     },
     confidence: parsed.data.confidence,
   };
+}
+
+function readVerdict(payload: unknown): unknown {
+  if (!isRecord(payload)) throw new ApiError("upstream", "Upstream decision failed.");
+  const answers = payload.answers;
+  if (!isRecord(answers) || !("verdict" in answers)) throw new ApiError("upstream", "Upstream decision failed.");
+  return answers.verdict;
+}
+
+function pickFields(value: unknown, fields: readonly string[]): Record<string, unknown> {
+  if (!isRecord(value)) throw new ApiError("upstream", "Upstream decision failed.");
+  const picked: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (field in value) picked[field] = value[field];
+  }
+  return picked;
+}
+
+function templateProbabilities(raw: Record<string, number>, allowed: readonly string[]): Record<string, number> {
+  const allowedKeys = new Set(allowed);
+  for (const key of Object.keys(raw)) {
+    if (!allowedKeys.has(key)) throw new InvalidOptionError();
+    const probability = raw[key];
+    if (typeof probability !== "number" || !Number.isFinite(probability) || probability < 0 || probability > 1) {
+      throw new ApiError("upstream", "Upstream decision failed.");
+    }
+  }
+  const probabilities: Record<string, number> = {};
+  for (const key of allowed) {
+    if (key in raw) probabilities[key] = raw[key] as number;
+  }
+  return probabilities;
+}
+
+function sameKeys(value: object, expected: readonly string[]): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.length && expected.every((key) => keys.includes(key));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function scoreVerdict(score: number, confidence: number): Record<string, unknown> {
+  const legend: Record<string, string> = {};
+  const probabilities: Record<string, number> = {};
+  for (const level of DLP_LEVELS) {
+    legend[String(level.index)] = level.label;
+    probabilities[String(level.index)] = 0;
+  }
+  probabilities["0"] = 1;
+  return { type: "score", score, confidence, legend, probabilities };
 }

@@ -15,13 +15,13 @@ The API validates every request with the Zod schemas in `lib/contract.ts`, asks 
 }
 ```
 
-| Tab | Input | Decision | On timeout, upstream error, or confidence &lt; 0.7 |
+| Tab | Input | Decision | Policy |
 | --- | --- | --- | --- |
-| `phishing` | `sender`, `subject`, `body` | yes/no, true means phishing | `undecided` (fail open) |
-| `soc` | alert fields (`alertId`, `title`, `severity`, `source`, `description`, optional `timestamp`, `host`, `user`) | choice: `benign`, `suspicious`, `malicious` | `undecided` (fail open) |
-| `mcp` | `toolName`, `args`, `agentContext` | yes/no, true means block the tool call | `blocked` (fail closed) |
-| `dlp` | `prompt` | score from 0 (`none`) through 4 (`critical`) | `blocked` (fail closed) |
-| `arena` | `prompt` | yes/no, true means jailbreak or prompt injection | `blocked` (fail closed) |
+| `phishing` | `sender`, `subject`, `body` | yes/no, true means phishing | Failures and confidence below 0.7 are `undecided`. A confident answer is `allow` (the judgment is usable; true still means phishing). |
+| `soc` | alert fields (`alertId`, `title`, `severity`, `source`, `description`, optional `timestamp`, `host`, `user`) | choice: `benign`, `suspicious`, `malicious` | Failures and confidence below 0.7 are `undecided`. A confident label is `allow`. |
+| `mcp` | `toolName`, `args`, `agentContext` | yes/no, true means the tool call is allowed | `allow` only when the answer is yes and confidence is at least 0.7. Everything else is `block`. |
+| `dlp` | `prompt` | float score from 0 (`none`) through 4 (`critical`) | `allow` when confidence is at least 0.7 and the score is below 2. A score of 2.0 or higher is `block` (`score_threshold`). `1.99` allows. |
+| `arena` | `prompt` | yes/no, true means the prompt is allowed | Same allow rule as `mcp`. A confident no is `block` (`policy_unsafe`). |
 
 Success body:
 
@@ -29,32 +29,46 @@ Success body:
 {
   decision:
     | { type: "yesno"; value: boolean }
-    | { type: "choice"; value: string; options: { label: string; score?: number }[] }
-    | { type: "score"; value: number; min: number; max: number },
+    | {
+        type: "choice";
+        value: string;
+        options: { label: string; score?: number }[];
+        probabilities: Record<string, number>;
+      }
+    | { type: "score"; value: number; min: number; max: number; probabilities: Record<string, number> },
   confidence: number, // 0..1
   rationale?: string,
-  status: "decided" | "blocked" | "undecided",
-  reason?: "timeout" | "upstream" | "lowconf",
+  outcome: "allow" | "block" | "undecided",
+  reason:
+    | "policy_unsafe"
+    | "low_confidence"
+    | "timeout"
+    | "upstream_error"
+    | "score_threshold"
+    | "invalid_option"
+    | "ok",
   latencyMs: number,
   requestId: string
 }
 ```
 
-`reason` is present only when `status` is `blocked` or `undecided`. Choice `options` and score `min` / `max` are fixed by the server templates. Option `score`, when present, is that option's probability from 0 through 1.
+`outcome` is `allow` only when `reason` is `ok`. Choice `options`, score `min` / `max` (0 and 4), and the DLP cutoff (`DLP_BLOCK_SCORE`, 2) come from the server templates. `decision.probabilities` is the per-option or per-level map from the model, with keys limited to those templates. Option `score`, when present, is that option's probability from 0 through 1. Score `value` is a float, including values between levels such as `2.97`.
 
 HTTP status for `POST /api/decide` and `POST /api/arena/round`:
 
-| Outcome | HTTP | Body |
+| Case | HTTP | Body |
 | --- | --- | --- |
-| Confident answer | 200 | `status: "decided"` |
-| Timeout or upstream transport/HTTP failure | 200 | `status: "blocked"` or `"undecided"`, `reason: "timeout"` or `"upstream"` |
-| Confidence below 0.7 | 200 | same status rule, `reason: "lowconf"`, decision is the validated answer |
+| Confident allow answer | 200 | `outcome: "allow"`, `reason: "ok"` |
+| Guardrail answer that is not the allow answer, confidence at least 0.7 | 200 | `outcome: "block"`, `reason: "policy_unsafe"` (mcp, arena) or `"score_threshold"` (dlp score ≥ 2) |
+| Confidence below 0.7 | 200 | `reason: "low_confidence"`. Guardrails `block`; phishing and soc are `undecided`. The validated answer is kept. |
+| Timeout or upstream transport/HTTP failure | 200 | `reason: "timeout"` or `"upstream_error"`. Guardrails `block`; phishing and soc are `undecided`. |
+| Choice or legend key outside the server template | 502 | decide response, `reason: "invalid_option"`. The bad label is not copied. Guardrails `block`; phishing and soc are `undecided`. |
 | Malformed or out-of-range model output | 502 | error envelope, model values are not copied |
 | Bad JSON, unknown fields, or oversized body (64 KiB) | 400 | `bad_request` |
 | Missing or invalid session cookie | 401 | `unauthorized` |
 | Rate limit, or the rate-limit store is unavailable | 429 | `rate_limited` and `retryAfterMs` |
 
-Closed tabs (`mcp`, `dlp`, `arena`) must be treated as blocked on any non-200 response. A timeout or transport failure still returns 200 so the client can read `status: "blocked"` instead of guessing.
+Treat `mcp`, `dlp`, and `arena` as blocked when `outcome` is `block` and on any error-envelope response. A timeout still returns 200 so the client can read `outcome` and `reason`.
 
 `POST /api/arena/round`
 
@@ -68,7 +82,7 @@ Closed tabs (`mcp`, `dlp`, `arena`) must be treated as blocked on any non-200 re
 
 The server is stateless. It replays `fixtures/arena-attacks.json` unless `ARENA_LIVE_ATTACKER=1`. History is untrusted: more than 9 prior rounds (a 10th completed round cannot start another), prompts over 4,000 characters, and verdicts that do not match the decide schema are rejected with 400. The next fixture is chosen from the validated history length. The attack prompt is placed only in the delimited state, never in the question text.
 
-`x-demo-fault: timeout | upstream | lowconf` is honored only when `DEMO_FAULT_INJECTION=1`, `VERCEL_ENV` is not `production`, and the session cookie is valid. Those faults use the same failure path as a real timeout, upstream error, or low-confidence answer. The production build fails when `DEMO_FAULT_INJECTION=1` and `VERCEL_ENV=production`.
+`x-demo-fault: timeout | upstream | lowconf` is honored only when `DEMO_FAULT_INJECTION=1`, `VERCEL_ENV` is not `production`, and the session cookie is valid. Those header values use the same path as a real failure and become `reason` `timeout`, `upstream_error`, or `low_confidence`. The production build fails when `DEMO_FAULT_INJECTION=1` and `VERCEL_ENV=production`.
 
 `POST /api/auth/passcode`
 
@@ -130,9 +144,11 @@ GitHub Actions runs lint, typecheck, tests, and build.
 
 Decision-1 is called at `POST https://decision-gerards-resource.services.ai.azure.com/providers/microsoft/v1/systemone` with Microsoft Entra ID (`ClientSecretCredential`, scope `https://cognitiveservices.azure.com/.default`). The credential object caches and refreshes tokens. The request uses the published System One shape from the Foundry how-to and the Databricks System One reference: `model`, `state`, and one typed question (`noul`, `choice`, or `score`). User text is only in `state`, inside `<<<UNTRUSTED_DATA>>>` markers. The question `instructions` are fixed templates.
 
-Open points, called out in code rather than guessed silently:
+Observed response shapes, parsed by named fields only (extra fields are ignored):
 
-- Published noul responses contain `noul` (probability of yes) and do not show a separate confidence. The adapter uses an explicit `confidence` field when present, otherwise `max(noul, 1 - noul)`, and treats `noul >= 0.5` as yes.
-- Score results are documented as probability-weighted indexes on a 0-based criteria array and may fall between levels. DLP uses 0 through 4. A 1-based score would be rejected as out of range.
-- `model` is sent as `Decision-1`, the deployment name from this project. Foundry uses the deployment name in the request, which can differ from the underlying model id `microsoft-decision-1`. A differently named deployment will fail the call.
-- The separate arena attacker is not deployed. `ARENA_LIVE_ATTACKER=1` assumes an OpenAI-compatible chat-completions endpoint, sends no tools, and uses only `ATTACKER_*` credentials. See the TODO in `lib/attacker.ts`.
+- Noul: `{ "noul": 0.9987, "type": "noul" }`. `noul` is P(yes). There is no confidence, so the adapter uses `max(noul, 1 - noul)` unless an explicit `confidence` is present. `noul >= 0.5` is yes. Guardrail questions are phrased so yes means allow.
+- Score: `{ "score": 2.97, "confidence": 0.90, "legend": { "0": "...", "4": "..." }, "probabilities": { "0": "...", "4": "..." } }`. `score` is a 0-based probability-weighted float and may fall between levels. Any float in `[0, 4]` is accepted. Legend keys must be exactly `0` through `4`.
+- Choice: `{ "choice": "engineering", "confidence": 0.998, "probabilities": {}, "type": "choice" }`. The chosen value and every probability key must be one of the server options.
+- The response `model` is `microsoft-decision-1` and is not checked against the deployment name. The request still sends `model: "Decision-1"`. A differently named deployment will fail the call.
+
+The separate arena attacker is not deployed. `ARENA_LIVE_ATTACKER=1` assumes an OpenAI-compatible chat-completions endpoint, sends no tools, and uses only `ATTACKER_*` credentials. See the TODO in `lib/attacker.ts`.

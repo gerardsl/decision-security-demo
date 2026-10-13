@@ -2,8 +2,13 @@ import "server-only";
 import type { DecideRequest } from "@/lib/contract";
 import type { DemoFault } from "@/lib/faults";
 import { ApiError } from "@/lib/http";
-import { applyConfidence, failureDecision, type SettledDecision } from "@/lib/policy";
-import { buildSystemOneRequest, lowConfidencePayload, parseModelJudgment } from "@/lib/questions";
+import { applyPolicy, failureDecision, type SettledDecision } from "@/lib/policy";
+import {
+  buildSystemOneRequest,
+  InvalidOptionError,
+  lowConfidencePayload,
+  parseModelJudgment,
+} from "@/lib/questions";
 import { createDecisionCaller, DecisionCallError } from "@/lib/upstream";
 
 export type DecisionCaller = (body: unknown) => Promise<unknown>;
@@ -18,11 +23,14 @@ let defaultCaller: DecisionCaller | undefined;
 export async function decide(input: DecideRequest, options: DecideOptions = {}): Promise<SettledDecision> {
   try {
     const raw = await loadUpstream(input, options);
-    return applyConfidence(input.tab, parseModelJudgment(input.tab, raw));
+    return applyPolicy(input.tab, parseModelJudgment(input.tab, raw));
   } catch (error) {
-    if (error instanceof DecisionCallError) return failureDecision(input.tab, error.reason);
+    if (error instanceof DecisionCallError) {
+      return failureDecision(input.tab, error.reason === "timeout" ? "timeout" : "upstream_error");
+    }
+    if (error instanceof InvalidOptionError) return failureDecision(input.tab, "invalid_option");
     if (error instanceof ApiError) throw error;
-    return failureDecision(input.tab, "upstream");
+    return failureDecision(input.tab, "upstream_error");
   }
 }
 

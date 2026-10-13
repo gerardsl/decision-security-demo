@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DLP_SCORE_RANGE, SOC_OPTIONS } from "@/lib/contract";
 import { ApiError } from "@/lib/http";
 import {
+  InvalidOptionError,
   QUESTION_INSTRUCTIONS,
   UNTRUSTED_END,
   UNTRUSTED_START,
@@ -63,13 +64,17 @@ describe("question templates", () => {
   });
 
   it("owns choice options and score bounds", () => {
+    const probabilities = { benign: 0.1, suspicious: 0.1, malicious: 0.8 };
     const choice = parseModelJudgment("soc", {
+      model: "microsoft-decision-1",
+      usage: { input_tokens: 12 },
       answers: {
         verdict: {
           type: "choice",
           choice: "malicious",
           confidence: 0.8,
-          probabilities: { malicious: 0.8, benign: 0.1, suspicious: 0.1, injected: 0.99 },
+          probabilities,
+          note: "EXTRA_UPSTREAM_FIELD",
         },
       },
     });
@@ -81,26 +86,82 @@ describe("question templates", () => {
         { label: "suspicious", score: 0.1 },
         { label: "malicious", score: 0.8 },
       ],
+      probabilities,
     });
+    expect(JSON.stringify(choice)).not.toContain("EXTRA_UPSTREAM_FIELD");
+    expect(JSON.stringify(choice)).not.toContain("microsoft-decision-1");
     expect(SOC_OPTIONS.map((option) => option.label)).toEqual(["benign", "suspicious", "malicious"]);
 
     expect(() =>
       parseModelJudgment("soc", {
-        answers: { verdict: { type: "choice", choice: "injected", confidence: 0.99 } },
+        answers: {
+          verdict: {
+            type: "choice",
+            choice: "engineering",
+            confidence: 0.99,
+            probabilities: { engineering: 0.99 },
+          },
+        },
       }),
-    ).toThrow(ApiError);
+    ).toThrow(InvalidOptionError);
+    expect(() =>
+      parseModelJudgment("soc", {
+        answers: {
+          verdict: {
+            type: "choice",
+            choice: "benign",
+            confidence: 0.9,
+            probabilities: { ...probabilities, injected: 0.99 },
+          },
+        },
+      }),
+    ).toThrow(InvalidOptionError);
 
     const score = parseModelJudgment("dlp", {
-      answers: { verdict: { type: "score", score: 1.5, confidence: 0.9, min: 0, max: 100 } },
+      answers: {
+        verdict: {
+          type: "score",
+          score: 2.97,
+          confidence: 0.9,
+          min: 0,
+          max: 100,
+          legend: { "0": "none", "1": "low", "2": "medium", "3": "high", "4": "critical" },
+          probabilities: { "0": 0, "1": 0, "2": 0.03, "3": 0.97, "4": 0 },
+        },
+      },
     });
     expect(score.decision).toEqual({
       type: "score",
-      value: 1.5,
+      value: 2.97,
       min: DLP_SCORE_RANGE.min,
       max: DLP_SCORE_RANGE.max,
+      probabilities: { "0": 0, "1": 0, "2": 0.03, "3": 0.97, "4": 0 },
     });
     expect(() =>
-      parseModelJudgment("dlp", { answers: { verdict: { type: "score", score: 9, confidence: 0.9 } } }),
+      parseModelJudgment("dlp", {
+        answers: {
+          verdict: {
+            type: "score",
+            score: 9,
+            confidence: 0.9,
+            legend: { "0": "none", "1": "low", "2": "medium", "3": "high", "4": "critical" },
+            probabilities: { "0": 1, "1": 0, "2": 0, "3": 0, "4": 0 },
+          },
+        },
+      }),
     ).toThrow(ApiError);
+    expect(() =>
+      parseModelJudgment("dlp", {
+        answers: {
+          verdict: {
+            type: "score",
+            score: 1,
+            confidence: 0.9,
+            legend: { "0": "none", "1": "low", "2": "medium", "5": "other" },
+            probabilities: { "0": 1, "1": 0, "2": 0, "3": 0, "4": 0 },
+          },
+        },
+      }),
+    ).toThrow(InvalidOptionError);
   });
 });

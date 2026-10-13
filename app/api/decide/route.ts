@@ -21,10 +21,10 @@ export async function POST(request: Request): Promise<Response> {
     const response: DecideResponse = {
       decision: settled.decision,
       confidence: settled.confidence,
-      status: settled.status,
+      outcome: settled.outcome,
+      reason: settled.reason,
       latencyMs: Date.now() - started,
       requestId,
-      ...(settled.reason ? { reason: settled.reason } : {}),
     };
     const checked = decideResponseSchema.safeParse(response);
     if (!checked.success) throw new ApiError("upstream", "Upstream decision failed.");
@@ -33,9 +33,9 @@ export async function POST(request: Request): Promise<Response> {
       tab,
       latencyMs: checked.data.latencyMs,
       decision: checked.data.decision.type,
-      status: checked.data.status,
+      status: checked.data.outcome,
     });
-    return Response.json(checked.data);
+    return Response.json(checked.data, { status: settled.httpStatus });
   } catch (error) {
     const apiError = error instanceof ApiError ? error : new ApiError("upstream", "Upstream decision failed.");
     logDecision({

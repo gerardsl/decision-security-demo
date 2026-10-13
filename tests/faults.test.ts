@@ -55,7 +55,7 @@ describe("fault injection", () => {
       },
     });
     expect(faulted).toEqual(thrown);
-    expect(faulted).toMatchObject({ status: "blocked", reason: "timeout" });
+    expect(faulted).toMatchObject({ outcome: "block", reason: "timeout", httpStatus: 200 });
 
     const upstreamThrown = await decide(mcpInput, {
       callDecision: async () => {
@@ -74,7 +74,7 @@ describe("fault injection", () => {
       },
     });
     expect(fromFault).toEqual(fromPayload);
-    expect(fromFault).toMatchObject({ status: "blocked", reason: "lowconf" });
+    expect(fromFault).toMatchObject({ outcome: "block", reason: "low_confidence", httpStatus: 200 });
     expect(payloadCaller).toHaveBeenCalledOnce();
   });
 });
