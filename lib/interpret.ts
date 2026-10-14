@@ -53,6 +53,8 @@ export function reasonLabel(reason: DecisionReason): string {
       return "Score crossed the sensitivity threshold";
     case "invalid_option":
       return "Invalid option";
+    case "invalid_tool_name":
+      return "Invalid tool name";
     case "ok":
       return "OK";
     default: {
