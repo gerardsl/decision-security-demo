@@ -3,11 +3,13 @@ import { createHash } from "node:crypto";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { ApiError } from "@/lib/http";
+import { MIN_SESSION_SECRET_LENGTH, readCookie, readSessionId, SESSION_COOKIE } from "@/lib/session";
 
 export type LimitReason = "timeout" | "cacheBlock" | "denyList";
 export type LimitResult = { success: boolean; reset: number; remaining: number; reason?: LimitReason };
 export type Limiter = { limit: (key: string) => Promise<LimitResult> };
 export type RateScope = "api" | "passcode";
+export type LimitCheck = "sid" | "ip" | "global";
 export type RateLimitBackend = "upstash" | "memory" | "closed";
 
 const FAIL_CLOSED_RETRY_MS = 60_000;
@@ -15,6 +17,8 @@ const RATE_LIMIT_TIMEOUT_MS = 1_500;
 const KEY_LOG_PREFIX = 12;
 const PASSCODE_GLOBAL_MAX = 20;
 const PASSCODE_GLOBAL_KEY = "passcode:global";
+const API_GLOBAL_MAX = 600;
+const API_GLOBAL_KEY = "api:global";
 
 const WINDOWS = {
   api: { max: 60, windowMs: 60_000, window: "60 s" },
@@ -23,6 +27,7 @@ const WINDOWS = {
 
 const memoryBuckets = new Map<string, number[]>();
 let apiLimiter: Limiter | undefined;
+let apiGlobalLimiterCached: Limiter | undefined;
 let passcodeLimiter: Limiter | undefined;
 let passcodeGlobalLimiterCached: Limiter | undefined;
 
@@ -30,6 +35,7 @@ export function resetMemoryRateLimitsForTests(): void {
   if (process.env.VITEST !== "true") return;
   memoryBuckets.clear();
   apiLimiter = undefined;
+  apiGlobalLimiterCached = undefined;
   passcodeLimiter = undefined;
   passcodeGlobalLimiterCached = undefined;
 }
@@ -75,13 +81,19 @@ export async function enforceRateLimit(
   limiter: Limiter = limiterFor(scope),
 ): Promise<void> {
   const backend = chooseRateLimitBackend(process.env);
-  await applyLimit(limiter, `${scope}:${clientIp(request)}`, scope, backend);
   if (scope === "passcode") {
-    await applyLimit(passcodeGlobalLimiter(), PASSCODE_GLOBAL_KEY, scope, backend);
+    await applyLimit(limiter, `passcode:${clientIp(request)}`, "ip", backend);
+    await applyLimit(passcodeGlobalLimiter(), PASSCODE_GLOBAL_KEY, "global", backend);
+    return;
   }
+  const sid = sessionIdForRateLimit(request);
+  if (!sid) throw new ApiError("unauthorized", "Authentication required.");
+  await applyLimit(limiter, `api:sid:${sid}`, "sid", backend);
+  await applyLimit(apiIpLimiter(), `api:ip:${clientIp(request)}`, "ip", backend);
+  await applyLimit(apiGlobalLimiter(), API_GLOBAL_KEY, "global", backend);
 }
 
-async function applyLimit(limiter: Limiter, key: string, scope: RateScope, backend: RateLimitBackend): Promise<void> {
+async function applyLimit(limiter: Limiter, key: string, scope: LimitCheck, backend: RateLimitBackend): Promise<void> {
   const started = Date.now();
   let result: LimitResult;
   try {
@@ -115,7 +127,7 @@ async function applyLimit(limiter: Limiter, key: string, scope: RateScope, backe
 }
 
 function logLimiterDecision(entry: {
-  scope: RateScope;
+  scope: LimitCheck;
   backend: RateLimitBackend;
   key: string;
   success: boolean;
@@ -137,15 +149,38 @@ function logLimiterDecision(entry: {
 }
 
 function limiterFor(scope: RateScope): Limiter {
+  if (scope === "api") return apiStandardLimiter();
   const backend = chooseRateLimitBackend(process.env);
   if (backend === "closed") return closedLimiter();
-  if (backend === "memory") return memoryLimiter(WINDOWS[scope].max, WINDOWS[scope].windowMs);
-  if (scope === "api") {
-    apiLimiter ??= upstashLimiter(WINDOWS.api.max, WINDOWS.api.window, "d1:api");
-    return apiLimiter;
-  }
+  if (backend === "memory") return memoryLimiter(WINDOWS.passcode.max, WINDOWS.passcode.windowMs);
   passcodeLimiter ??= upstashLimiter(WINDOWS.passcode.max, WINDOWS.passcode.window, "d1:passcode");
   return passcodeLimiter;
+}
+
+function apiIpLimiter(): Limiter {
+  return apiStandardLimiter();
+}
+
+function apiGlobalLimiter(): Limiter {
+  const backend = chooseRateLimitBackend(process.env);
+  if (backend === "closed") return closedLimiter();
+  if (backend === "memory") return memoryLimiter(API_GLOBAL_MAX, WINDOWS.api.windowMs);
+  apiGlobalLimiterCached ??= upstashLimiter(API_GLOBAL_MAX, WINDOWS.api.window, "d1:api");
+  return apiGlobalLimiterCached;
+}
+
+function apiStandardLimiter(): Limiter {
+  const backend = chooseRateLimitBackend(process.env);
+  if (backend === "closed") return closedLimiter();
+  if (backend === "memory") return memoryLimiter(WINDOWS.api.max, WINDOWS.api.windowMs);
+  apiLimiter ??= upstashLimiter(WINDOWS.api.max, WINDOWS.api.window, "d1:api");
+  return apiLimiter;
+}
+
+function sessionIdForRateLimit(request: Request): string | undefined {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret.length < MIN_SESSION_SECRET_LENGTH) return undefined;
+  return readSessionId(readCookie(request, SESSION_COOKIE), secret);
 }
 
 function passcodeGlobalLimiter(): Limiter {

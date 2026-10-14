@@ -1,9 +1,17 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { logDecision } from "@/lib/log";
 import { chooseRateLimitBackend, clientIp, enforceRateLimit, resolveRedisCredentials } from "@/lib/ratelimit";
+import { SESSION_COOKIE, createSessionValue } from "@/lib/session";
 import { DECISION_ENDPOINT, DecisionCallError, createDecisionCaller } from "@/lib/upstream";
+import { SESSION_SECRET } from "@/tests/helpers";
 import { redisMock } from "@/tests/redis-mock-state";
+
+const FIXED_SID = "0123456789abcdef0123456789abcdef";
+
+function sessionFor(sid: string): string {
+  return `${SESSION_COOKIE}=${createSessionValue(SESSION_SECRET, Date.now(), sid)}`;
+}
 
 describe("decision upstream", () => {
   it("sends the documented system-one request and drops upstream error bodies", async () => {
@@ -67,7 +75,7 @@ describe("decision upstream", () => {
 describe("rate limit and logs", () => {
   it("fails closed when the shared store throws and limits passcode attempts", async () => {
     const request = new Request("http://localhost/api/decide", {
-      headers: { "x-forwarded-for": "198.51.100.10, 10.0.0.1" },
+      headers: { "x-forwarded-for": "198.51.100.10, 10.0.0.1", cookie: sessionFor(FIXED_SID) },
     });
     expect(clientIp(request)).toBe("198.51.100.10");
     await expect(
@@ -175,7 +183,7 @@ describe("rate limit and logs", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
       const request = new Request("http://localhost/api/decide", {
-        headers: { "x-forwarded-for": "203.0.113.77" },
+        headers: { "x-forwarded-for": "203.0.113.77", cookie: sessionFor(FIXED_SID) },
       });
       await expect(
         enforceRateLimit(request, "api", {
@@ -184,6 +192,7 @@ describe("rate limit and logs", () => {
       ).rejects.toMatchObject({ status: 429, code: "rate_limited", retryAfterMs: 60_000 });
       const lines = info.mock.calls.map((call) => String(call[0]));
       expect(lines.join("\n")).not.toContain("203.0.113.77");
+      expect(lines.join("\n")).not.toContain(FIXED_SID);
       const logged = JSON.parse(lines.at(-1) ?? "{}") as {
         key: string;
         success: boolean;
@@ -194,13 +203,13 @@ describe("rate limit and logs", () => {
         latencyMs: number;
       };
       expect(logged).toMatchObject({
-        scope: "api",
+        scope: "sid",
         backend: "memory",
         success: false,
         reason: "timeout",
         remaining: 0,
       });
-      expect(logged.key).toBe(createHash("sha256").update("api:203.0.113.77").digest("hex").slice(0, 12));
+      expect(logged.key).toBe(createHash("sha256").update(`api:sid:${FIXED_SID}`).digest("hex").slice(0, 12));
       expect(logged.latencyMs).toBeGreaterThanOrEqual(0);
     } finally {
       info.mockRestore();
@@ -242,8 +251,11 @@ describe("rate limit and logs", () => {
     process.env.UPSTASH_REDIS_REST_TOKEN = "token";
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const address = (n: number) => `[2a09:bac5:4c1a:8f21:${n.toString(16)}::${n}]:443`;
-    const call = (n: number, path: string) =>
-      new Request(`http://localhost${path}`, { headers: { "x-vercel-forwarded-for": address(n) } });
+    const call = (n: number, path: string) => {
+      const headers = new Headers({ "x-vercel-forwarded-for": address(n) });
+      if (path === "/api/decide") headers.set("cookie", sessionFor(n.toString(16).padStart(32, "0")));
+      return new Request(`http://localhost${path}`, { headers });
+    };
     try {
       for (let n = 1; n <= 60; n += 1) {
         await enforceRateLimit(call(n, "/api/decide"), "api");
@@ -261,7 +273,9 @@ describe("rate limit and logs", () => {
       });
       expect(redisMock.configs.length).toBeGreaterThan(0);
       expect(redisMock.configs.every((config) => config.timeout === 1500)).toBe(true);
-      expect(redisMock.identifiers).toContain("api:2a09:bac5:4c1a:8f21::/64");
+      expect(redisMock.identifiers).toContain("api:ip:2a09:bac5:4c1a:8f21::/64");
+      expect(redisMock.identifiers).toContain("api:sid:00000000000000000000000000000001");
+      expect(redisMock.identifiers).toContain("api:global");
       expect(redisMock.identifiers).toContain("passcode:2a09:bac5:4c1a:8f21::/64");
       expect(redisMock.identifiers).toContain("passcode:global");
       const logged = info.mock.calls.map((call) => String(call[0])).join("\n");
@@ -272,6 +286,75 @@ describe("rate limit and logs", () => {
       delete process.env.UPSTASH_REDIS_REST_URL;
       delete process.env.UPSTASH_REDIS_REST_TOKEN;
     }
+  });
+
+  it("limits one session at 61 requests across different addresses", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const sid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const requestFor = (n: number) =>
+      new Request("http://localhost/api/decide", {
+        headers: { "x-forwarded-for": `198.51.100.${n}`, cookie: sessionFor(sid) },
+      });
+    try {
+      for (let n = 1; n <= 60; n += 1) {
+        await enforceRateLimit(requestFor(n), "api");
+      }
+      await expect(enforceRateLimit(requestFor(61), "api")).rejects.toMatchObject({
+        status: 429,
+        code: "rate_limited",
+      });
+      const lines = info.mock.calls.map((call) => String(call[0]));
+      const logged = JSON.parse(lines.at(-1) ?? "{}") as { scope: string; key: string; success: boolean };
+      expect(logged).toMatchObject({
+        scope: "sid",
+        success: false,
+        key: createHash("sha256").update(`api:sid:${sid}`).digest("hex").slice(0, 12),
+      });
+      expect(lines.join("\n")).not.toContain(sid);
+      expect(lines.join("\n")).not.toContain("198.51.100");
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("applies a global API limit across sessions and addresses", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const requestFor = (n: number) => {
+      const sid = n.toString(16).padStart(32, "0");
+      const ip = `10.${(n >> 16) & 255}.${(n >> 8) & 255}.${n & 255}`;
+      return new Request("http://localhost/api/decide", {
+        headers: { "x-forwarded-for": ip, cookie: sessionFor(sid) },
+      });
+    };
+    try {
+      for (let n = 1; n <= 600; n += 1) {
+        await enforceRateLimit(requestFor(n), "api");
+      }
+      await expect(enforceRateLimit(requestFor(601), "api")).rejects.toMatchObject({
+        status: 429,
+        code: "rate_limited",
+      });
+      const logged = JSON.parse(String(info.mock.calls.at(-1)?.[0] ?? "{}")) as { scope: string; success: boolean };
+      expect(logged).toMatchObject({ scope: "global", success: false });
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("rejects an API call whose session cookie has no sid", async () => {
+    const payload = Buffer.from(JSON.stringify({ v: 1, exp: Date.now() + 60_000 })).toString("base64url");
+    const signature = createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+    await expect(
+      enforceRateLimit(
+        new Request("http://localhost/api/decide", {
+          headers: {
+            cookie: `${SESSION_COOKIE}=${payload}.${signature}`,
+            "x-forwarded-for": "198.51.100.10",
+          },
+        }),
+        "api",
+      ),
+    ).rejects.toMatchObject({ status: 401, code: "unauthorized", message: "Authentication required." });
   });
 
   it("logs only the allowlisted fields", () => {

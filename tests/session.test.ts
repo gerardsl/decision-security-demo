@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as passcode } from "@/app/api/auth/passcode/route";
@@ -10,6 +11,7 @@ import {
   SESSION_TTL_MS,
   createSessionValue,
   passcodeMatches,
+  readSessionId,
   verifySessionValue,
 } from "@/lib/session";
 import { DEMO_PASSCODE, SESSION_SECRET, postJson, sessionCookie } from "@/tests/helpers";
@@ -42,6 +44,8 @@ describe("passcode session", () => {
 
     const value = setCookie.split(";")[0]?.slice(`${SESSION_COOKIE}=`.length) ?? "";
     expect(verifySessionValue(value, SESSION_SECRET)).toBe(true);
+    const issued = JSON.parse(Buffer.from(value.split(".")[0] ?? "", "base64url").toString("utf8")) as { sid?: string };
+    expect(issued.sid).toMatch(/^[0-9a-f]{32}$/);
     expect(verifySessionValue(value, "another-session-secret")).toBe(false);
     expect(verifySessionValue(`${value}x`, SESSION_SECRET)).toBe(false);
     const expired = createSessionValue(SESSION_SECRET, Date.now() - SESSION_TTL_MS - 5_000);
@@ -71,5 +75,34 @@ describe("passcode session", () => {
     const login = proxy(new NextRequest("http://localhost/login"));
     expect(login.status).not.toBe(401);
     expect(login.headers.get("location")).toBeNull();
+  });
+
+  it("rejects a signed cookie that has no session id", () => {
+    const payload = Buffer.from(JSON.stringify({ v: 1, exp: Date.now() + 60_000 })).toString("base64url");
+    const signature = createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+    const value = `${payload}.${signature}`;
+    expect(verifySessionValue(value, SESSION_SECRET)).toBe(false);
+    expect(readSessionId(value, SESSION_SECRET)).toBeUndefined();
+    expect(() =>
+      assertSession(
+        new Request("http://localhost/api/decide", { headers: { cookie: `${SESSION_COOKIE}=${value}` } }),
+      ),
+    ).toThrow(ApiError);
+    try {
+      assertSession(
+        new Request("http://localhost/api/decide", { headers: { cookie: `${SESSION_COOKIE}=${value}` } }),
+      );
+    } catch (error) {
+      expect(error).toMatchObject({ status: 401, code: "unauthorized", message: "Authentication required." });
+    }
+
+    const redirect = proxy(
+      new NextRequest("http://localhost/", { headers: { cookie: `${SESSION_COOKIE}=${value}` } }),
+    );
+    expect(redirect.headers.get("location")).toBe("http://localhost/login");
+    const denied = proxy(
+      new NextRequest("http://localhost/api/decide", { headers: { cookie: `${SESSION_COOKIE}=${value}` } }),
+    );
+    expect(denied.status).toBe(401);
   });
 });
