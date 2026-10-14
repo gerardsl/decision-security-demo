@@ -1,6 +1,51 @@
-import { beforeEach } from "vitest";
+import { beforeEach, vi } from "vitest";
 import { resetMemoryRateLimitsForTests } from "@/lib/ratelimit";
 import { ATTACKER_API_KEY, AZURE_CLIENT_SECRET, DEMO_PASSCODE, SESSION_SECRET } from "@/tests/helpers";
+
+vi.mock("@upstash/redis", () => ({
+  Redis: class Redis {
+    constructor(_config: { url: string; token: string }) {}
+  },
+}));
+
+vi.mock("@upstash/ratelimit", async () => {
+  const { redisMock } = await import("./redis-mock-state");
+  return {
+    Ratelimit: class Ratelimit {
+      private readonly tokens: number;
+      private readonly prefix: string;
+
+      constructor(config: { prefix?: string; timeout?: number; limiter: { tokens: number; window: string } }) {
+        this.tokens = config.limiter.tokens;
+        this.prefix = config.prefix ?? "";
+        redisMock.configs.push({
+          timeout: config.timeout,
+          prefix: config.prefix,
+          tokens: config.limiter.tokens,
+          window: config.limiter.window,
+        });
+      }
+
+      static slidingWindow(tokens: number, window: string) {
+        return { tokens, window };
+      }
+
+      async limit(identifier: string) {
+        redisMock.identifiers.push(identifier);
+        const bucket = `${this.prefix}:${identifier}`;
+        const count = (redisMock.counts.get(bucket) ?? 0) + 1;
+        redisMock.counts.set(bucket, count);
+        return {
+          success: count <= this.tokens,
+          limit: this.tokens,
+          remaining: Math.max(0, this.tokens - count),
+          reset: Date.now() + 60_000,
+          pending: Promise.resolve(),
+        };
+      }
+    },
+  };
+});
 
 beforeEach(() => {
   process.env.SESSION_SECRET = SESSION_SECRET;
