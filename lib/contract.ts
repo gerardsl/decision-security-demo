@@ -77,6 +77,9 @@ export const DLP_LEVELS = [
 
 export const DLP_SCORE_RANGE = { min: 0, max: 4 } as const;
 
+/** DLP blocks when the probability-weighted score is at or above this float. */
+export const DLP_BLOCK_SCORE = 2;
+
 const boundedText = (max: number) => z.string().trim().min(1).max(max);
 
 export const phishingInputSchema = z
@@ -162,11 +165,14 @@ export const choiceOptionSchema = z
   })
   .strict();
 
+export const probabilityMapSchema = z.record(z.string(), z.number().min(0).max(1));
+
 export const choiceDecisionSchema = z
   .object({
     type: z.literal("choice"),
     value: z.string().min(1),
     options: z.array(choiceOptionSchema).min(1),
+    probabilities: probabilityMapSchema,
   })
   .strict();
 
@@ -176,6 +182,7 @@ export const scoreDecisionSchema = z
     value: z.number(),
     min: z.number(),
     max: z.number(),
+    probabilities: probabilityMapSchema,
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -201,33 +208,42 @@ export const decisionSchema = z.discriminatedUnion("type", [
   scoreDecisionSchema,
 ]);
 
-export const decisionStatusSchema = z.enum(["decided", "blocked", "undecided"]);
-export const decisionReasonSchema = z.enum(["timeout", "upstream", "lowconf"]);
+export const outcomeSchema = z.enum(["allow", "block", "undecided"]);
+export const decisionReasonSchema = z.enum([
+  "policy_unsafe",
+  "low_confidence",
+  "timeout",
+  "upstream_error",
+  "score_threshold",
+  "invalid_option",
+  "invalid_tool_name",
+  "ok",
+]);
 
 export const decideResponseSchema = z
   .object({
     decision: decisionSchema,
     confidence: z.number().min(0).max(1),
     rationale: z.string().max(LIMITS.rationale).optional(),
-    status: decisionStatusSchema,
-    reason: decisionReasonSchema.optional(),
+    outcome: outcomeSchema,
+    reason: decisionReasonSchema,
     latencyMs: z.number().nonnegative(),
     requestId: z.string().uuid(),
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (value.status === "decided" && value.reason !== undefined) {
+    if (value.outcome === "allow" && value.reason !== "ok") {
       ctx.addIssue({
         code: "custom",
         path: ["reason"],
-        message: "A decided response does not include a reason.",
+        message: "An allow outcome uses reason ok.",
       });
     }
-    if (value.status !== "decided" && value.reason === undefined) {
+    if (value.outcome !== "allow" && value.reason === "ok") {
       ctx.addIssue({
         code: "custom",
         path: ["reason"],
-        message: "Blocked and undecided responses require a reason.",
+        message: "Only an allow outcome uses reason ok.",
       });
     }
   });
@@ -275,9 +291,13 @@ export const arenaHistoryEntrySchema = z
   })
   .strict();
 
+/** Synthetic arena fixtures. `fixtureIndex` is 1-based and stops at this length. */
+const ARENA_FIXTURE_COUNT = 30;
+
 export const arenaRoundRequestSchema = z
   .object({
     history: z.array(arenaHistoryEntrySchema).max(LIMITS.maxHistoryRounds).optional(),
+    fixtureIndex: z.number().int().min(1).max(ARENA_FIXTURE_COUNT).optional(),
   })
   .strict();
 
@@ -314,7 +334,7 @@ export const arenaAttackFixtureSchema = z
   })
   .strict();
 
-export const arenaAttackFixturesSchema = z.array(arenaAttackFixtureSchema).length(30);
+export const arenaAttackFixturesSchema = z.array(arenaAttackFixtureSchema).length(ARENA_FIXTURE_COUNT);
 
 export type PhishingInput = z.infer<typeof phishingInputSchema>;
 export type SocInput = z.infer<typeof socInputSchema>;
@@ -327,7 +347,7 @@ export type ChoiceOption = z.infer<typeof choiceOptionSchema>;
 export type ChoiceDecision = z.infer<typeof choiceDecisionSchema>;
 export type ScoreDecision = z.infer<typeof scoreDecisionSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
-export type DecisionStatus = z.infer<typeof decisionStatusSchema>;
+export type Outcome = z.infer<typeof outcomeSchema>;
 export type DecisionReason = z.infer<typeof decisionReasonSchema>;
 export type DecideResponse = z.infer<typeof decideResponseSchema>;
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
