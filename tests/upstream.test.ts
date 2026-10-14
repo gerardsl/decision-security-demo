@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { logDecision } from "@/lib/log";
-import { chooseRateLimitBackend, clientIp, enforceRateLimit } from "@/lib/ratelimit";
+import { chooseRateLimitBackend, clientIp, enforceRateLimit, resolveRedisCredentials } from "@/lib/ratelimit";
 import { DECISION_ENDPOINT, DecisionCallError, createDecisionCaller } from "@/lib/upstream";
 
 describe("decision upstream", () => {
@@ -92,6 +92,59 @@ describe("rate limit and logs", () => {
         UPSTASH_REDIS_REST_TOKEN: "token",
       }),
     ).toBe("upstash");
+  });
+
+  it("uses the UPSTASH pair", () => {
+    const env = {
+      UPSTASH_REDIS_REST_URL: "https://upstash.example",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+    };
+    expect(resolveRedisCredentials(env)).toEqual({ url: "https://upstash.example", token: "upstash-token" });
+    expect(chooseRateLimitBackend(env)).toBe("upstash");
+  });
+
+  it("uses the KV pair", () => {
+    const env = {
+      KV_REST_API_URL: "https://kv.example",
+      KV_REST_API_TOKEN: "kv-token",
+    };
+    expect(resolveRedisCredentials(env)).toEqual({ url: "https://kv.example", token: "kv-token" });
+    expect(chooseRateLimitBackend(env)).toBe("upstash");
+  });
+
+  it("prefers the UPSTASH pair when both pairs are set", () => {
+    const env = {
+      UPSTASH_REDIS_REST_URL: "https://upstash.example",
+      UPSTASH_REDIS_REST_TOKEN: "upstash-token",
+      KV_REST_API_URL: "https://kv.example",
+      KV_REST_API_TOKEN: "kv-token",
+    };
+    expect(resolveRedisCredentials(env)).toEqual({ url: "https://upstash.example", token: "upstash-token" });
+    expect(chooseRateLimitBackend(env)).toBe("upstash");
+  });
+
+  it("treats neither pair as absent", () => {
+    expect(resolveRedisCredentials({})).toBeNull();
+    expect(chooseRateLimitBackend({})).toBe("closed");
+    expect(chooseRateLimitBackend({ VITEST: "true" })).toBe("memory");
+  });
+
+  it("treats a mixed or partial pair as absent", () => {
+    const mixed = {
+      UPSTASH_REDIS_REST_URL: "https://upstash.example",
+      KV_REST_API_TOKEN: "kv-token",
+    };
+    expect(resolveRedisCredentials(mixed)).toBeNull();
+    expect(chooseRateLimitBackend(mixed)).toBe("closed");
+    expect(resolveRedisCredentials({ UPSTASH_REDIS_REST_URL: "https://upstash.example" })).toBeNull();
+    expect(resolveRedisCredentials({ KV_REST_API_TOKEN: "kv-token" })).toBeNull();
+    expect(
+      resolveRedisCredentials({
+        UPSTASH_REDIS_REST_URL: "https://upstash.example",
+        KV_REST_API_URL: "https://kv.example",
+        KV_REST_API_TOKEN: "kv-token",
+      }),
+    ).toEqual({ url: "https://kv.example", token: "kv-token" });
   });
 
   it("logs only the allowlisted fields", () => {
