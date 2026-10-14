@@ -23,8 +23,24 @@ export function resetMemoryRateLimitsForTests(): void {
   memoryBuckets.clear();
 }
 
+export type RedisCredentials = { url: string; token: string };
+
+// A pair is present only when both of its variables are set. UPSTASH_ wins over KV_.
+// Vercel Upstash injects KV_REST_API_URL and KV_REST_API_TOKEN; a mixed or partial pair is absent.
+export function resolveRedisCredentials(env: Record<string, string | undefined>): RedisCredentials | null {
+  const upstashUrl = env.UPSTASH_REDIS_REST_URL;
+  const upstashToken = env.UPSTASH_REDIS_REST_TOKEN;
+  if (upstashUrl && upstashToken) return { url: upstashUrl, token: upstashToken };
+
+  const kvUrl = env.KV_REST_API_URL;
+  const kvToken = env.KV_REST_API_TOKEN;
+  if (kvUrl && kvToken) return { url: kvUrl, token: kvToken };
+
+  return null;
+}
+
 export function chooseRateLimitBackend(env: Record<string, string | undefined>): "upstash" | "memory" | "closed" {
-  if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) return "upstash";
+  if (resolveRedisCredentials(env)) return "upstash";
   if (env.VITEST === "true") return "memory";
   return "closed";
 }
@@ -89,9 +105,17 @@ function memoryLimiter(scope: RateScope): Limiter {
 }
 
 function upstashLimiter(scope: RateScope): Limiter {
+  const credentials = resolveRedisCredentials(process.env);
+  if (!credentials) {
+    return {
+      async limit() {
+        return { success: false, reset: Date.now() + FAIL_CLOSED_RETRY_MS };
+      },
+    };
+  }
   const { max, window } = WINDOWS[scope];
   const ratelimit = new Ratelimit({
-    redis: Redis.fromEnv(),
+    redis: new Redis({ url: credentials.url, token: credentials.token }),
     limiter: Ratelimit.slidingWindow(max, window),
     prefix: `d1:${scope}`,
     analytics: false,
