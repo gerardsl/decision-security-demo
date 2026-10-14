@@ -19,7 +19,7 @@ The API validates every request with the Zod schemas in `lib/contract.ts`, asks 
 | --- | --- | --- | --- |
 | `phishing` | `sender`, `subject`, `body` | yes/no, true means phishing | Failures and confidence below 0.7 are `undecided`. A confident answer is `allow` (the judgment is usable; true still means phishing). |
 | `soc` | alert fields (`alertId`, `title`, `severity`, `source`, `description`, optional `timestamp`, `host`, `user`) | choice: `benign`, `suspicious`, `malicious` | Failures and confidence below 0.7 are `undecided`. A confident label is `allow`. |
-| `mcp` | `toolName`, `args`, `agentContext` | yes/no, true means the tool call is allowed | `allow` only when the answer is yes and confidence is at least 0.7. Everything else is `block`. |
+| `mcp` | `toolName`, `args`, `agentContext` | yes/no, true means the tool call is allowed | `allow` only when the answer is yes and confidence is at least 0.7. Everything else is `block`. A tool name outside `^[A-Za-z0-9_.:-]{1,64}$` is `block` (`invalid_tool_name`) and is not sent upstream. |
 | `dlp` | `prompt` | float score from 0 (`none`) through 4 (`critical`) | `allow` when confidence is at least 0.7 and the score is below 2. A score of 2.0 or higher is `block` (`score_threshold`). `1.99` allows. |
 | `arena` | `prompt` | yes/no, true means the prompt is allowed | Same allow rule as `mcp`. A confident no is `block` (`policy_unsafe`). |
 
@@ -46,6 +46,7 @@ Success body:
     | "upstream_error"
     | "score_threshold"
     | "invalid_option"
+    | "invalid_tool_name"
     | "ok",
   latencyMs: number,
   requestId: string
@@ -64,6 +65,7 @@ HTTP status for `POST /api/decide` and `POST /api/arena/round`:
 | Timeout | 502 | Decide body. `reason: "timeout"`. Guardrails `block`; phishing and soc are `undecided`. |
 | Upstream transport or HTTP failure, or a malformed or out-of-range answer | 502 | Decide body. `reason: "upstream_error"`. Guardrails `block`; phishing and soc are `undecided`. Model values are not copied. |
 | Choice or legend key outside the server template | 502 | Decide body. `reason: "invalid_option"`. The bad label is not copied. Guardrails `block`; phishing and soc are `undecided`. |
+| MCP tool name outside `^[A-Za-z0-9_.:-]{1,64}$` | 200 | Decide body. `outcome: "block"`, `reason: "invalid_tool_name"`, decision `{ type: "yesno", value: false }`. |
 | Bad JSON, unknown fields, or oversized body (64 KiB) | 400 | Bare `{ error: { code: "bad_request", message }, requestId }` |
 | Missing or invalid session cookie | 401 | Bare `{ error: { code: "unauthorized", message }, requestId }` |
 | Rate limit, or the rate-limit store is unavailable | 429 | `{ error: { code: "rate_limited", message }, requestId, retryAfterMs }` |
@@ -73,14 +75,15 @@ A decide body is `decision`, `confidence`, `outcome`, `reason`, `latencyMs`, and
 `POST /api/arena/round`
 
 ```ts
-// request — history is untrusted and capped at 10 rounds
-{ history?: { prompt: string; verdict: /* decide response */ }[] }
+// request — history is untrusted and capped at 10 rounds.
+// fixtureIndex is optional, 1-based, and only selects a fixture in replay mode.
+{ history?: { prompt: string; verdict: /* decide response */ }[]; fixtureIndex?: number }
 
 // response
 { attack: { prompt: string }; verdict: /* decide response */; round: number }
 ```
 
-The server is stateless. It replays `fixtures/arena-attacks.json` unless `ARENA_LIVE_ATTACKER=1`. History is untrusted: more than 9 prior rounds (a 10th completed round cannot start another), prompts over 4,000 characters, and verdicts that do not match the decide schema are rejected with 400. The next fixture is chosen from the validated history length. The attack prompt is placed only in the delimited state, never in the question text.
+The server is stateless. It replays `fixtures/arena-attacks.json` unless `ARENA_LIVE_ATTACKER=1`. History is untrusted: more than 9 prior rounds (a 10th completed round cannot start another), prompts over 4,000 characters, and verdicts that do not match the decide schema are rejected with 400. In replay mode the next fixture comes from `fixtureIndex` when that integer is from 1 through the fixture count. Omitting it keeps the history-length selection. A non-integer or out-of-range `fixtureIndex` is 400. Live mode ignores `fixtureIndex`. The attack prompt is placed only in the delimited state, never in the question text.
 
 `x-demo-fault` is honored only when `DEMO_FAULT_INJECTION=1`, `VERCEL_ENV` is not `production`, and the session cookie is valid. The production build fails when `DEMO_FAULT_INJECTION=1` and `VERCEL_ENV=production`.
 
