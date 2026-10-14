@@ -130,6 +130,8 @@ Copy `.env.example` for the variable names. Values are set in Vercel, never comm
 | `DEMO_PASSCODE` | Demo gate. |
 | `SESSION_SECRET` | Signs the session cookie. At least 16 characters. |
 | `DEMO_FAULT_INJECTION` | Set to `1` only outside production to honor `x-demo-fault`. |
+| `NEXT_PUBLIC_USE_MOCK` | Frontend only. Set to `1` to answer from `lib/mock-api.ts`. Default off. |
+| `NEXT_PUBLIC_ARENA_LIVE_ATTACKER` | Frontend only. Set to `1` to POST capped history to `/api/arena/round`. |
 | `ARENA_LIVE_ATTACKER` | Set to `1` to call the separate attacker deployment. |
 | `ATTACKER_ENDPOINT` | Attacker deployment URL (`https`). Not the Decision-1 endpoint. |
 | `ATTACKER_API_KEY` | Attacker credential. Must differ from `AZURE_CLIENT_SECRET`. |
@@ -138,6 +140,16 @@ Copy `.env.example` for the variable names. Values are set in Vercel, never comm
 Required in Vercel for a working demo: `AZURE_CLIENT_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `DEMO_PASSCODE`, and `SESSION_SECRET`. Without Upstash the API fails closed with 429. The attacker variables are required only when `ARENA_LIVE_ATTACKER=1`.
 
 Decision-1 endpoint, deployment name (`Decision-1`), tenant id, and client id are fixed in `lib/upstream.ts`. They are resource identifiers, not secrets. The client secret and access token are never logged or returned.
+
+## Frontend
+
+The console is the home page. Five tabs share one decision card. Phishing and SOC headlines show the verdict (`Phishing` / `Legitimate`, or the SOC label such as `Benign`). MCP, DLP, and the arena show `Allowed`, `Blocked`, or `Undecided` from `outcome` only. The browser does not apply `CONFIDENCE_THRESHOLD` or `DLP_BLOCK_SCORE`; those cutoffs are display text.
+
+A 502 whose body parses as a decide response renders that card, including `timeout`, `upstream_error`, and `invalid_option`. A bare `{ error }` body, including a plain 502, is a generic error. A bare 400 is bad input. A 429 starts a countdown from `retryAfterMs`.
+
+A 401 from a decision request means the session cookie is missing. The UI sends the browser to `/login?next=` with the current tab, for example `/?tab=mcp`. `next` is followed only when it is a same-origin path. The passcode is posted to `/api/auth/passcode` and is not stored in the browser. Model and attacker text is rendered as text.
+
+`NEXT_PUBLIC_USE_MOCK=1` serves contract-valid samples, including each status above, so the tabs can render before credentials are present. Leave it unset when the API routes should answer.
 
 ## Scripts
 

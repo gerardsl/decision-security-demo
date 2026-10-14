@@ -19,4 +19,24 @@ describe("fault injection build guard", () => {
     expect(run({ VERCEL_ENV: "preview", DEMO_FAULT_INJECTION: "1" }).status).toBe(0);
     expect(run({ VERCEL_ENV: "production", DEMO_FAULT_INJECTION: "" }).status).toBe(0);
   });
+
+  it("fails the build when mock mode is enabled in production", () => {
+    const blocked = run({
+      VERCEL_ENV: "production",
+      NEXT_PUBLIC_USE_MOCK: "1",
+      DEMO_FAULT_INJECTION: "0",
+    });
+    expect(blocked.status).toBe(1);
+    expect(blocked.stderr).toContain("NEXT_PUBLIC_USE_MOCK");
+
+    expect(
+      run({ VERCEL_ENV: "preview", NEXT_PUBLIC_USE_MOCK: "1", DEMO_FAULT_INJECTION: "0" }).status,
+    ).toBe(0);
+    expect(
+      run({ VERCEL_ENV: "production", NEXT_PUBLIC_USE_MOCK: "0", DEMO_FAULT_INJECTION: "0" }).status,
+    ).toBe(0);
+    expect(
+      run({ VERCEL_ENV: "production", NEXT_PUBLIC_USE_MOCK: "", DEMO_FAULT_INJECTION: "" }).status,
+    ).toBe(0);
+  });
 });
