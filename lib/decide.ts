@@ -23,7 +23,12 @@ export type DecideOptions = {
 
 let defaultCaller: DecisionCaller | undefined;
 
+const MCP_TOOL_NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
+
 export async function decide(input: DecideRequest, options: DecideOptions = {}): Promise<SettledDecision> {
+  if (input.tab === "mcp" && !MCP_TOOL_NAME.test(input.input.toolName)) {
+    return failureDecision(input.tab, "invalid_tool_name");
+  }
   try {
     const raw = await loadUpstream(input, options);
     return applyPolicy(input.tab, parseModelJudgment(input.tab, raw));

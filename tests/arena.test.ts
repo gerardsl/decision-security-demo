@@ -112,6 +112,69 @@ describe("arena history", () => {
   });
 });
 
+describe("arena fixture index", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const options = { callDecision: async () => highYes };
+
+  it("uses a valid fixtureIndex instead of the round number", async () => {
+    const round = await playArenaRound(
+      { history: [{ prompt: "prior", verdict: verdict() }], fixtureIndex: 7 },
+      options,
+    );
+    expect(round.round).toBe(2);
+    expect(round.attack.prompt).toBe(fixtures[6]?.prompt);
+    expect(round.attack.prompt).not.toBe(fixtures[1]?.prompt);
+    const full = Array.from({ length: 10 }, () => ({ prompt: "round", verdict: verdict() }));
+    await expect(playArenaRound({ history: full, fixtureIndex: 1 }, options)).rejects.toMatchObject({
+      status: 400,
+      code: "bad_request",
+    });
+  });
+
+  it("rejects fixture indexes 0 and 31", async () => {
+    expect(fixtures).toHaveLength(30);
+    await expect(playArenaRound({ fixtureIndex: 0 }, options)).rejects.toMatchObject({
+      status: 400,
+      code: "bad_request",
+    });
+    await expect(playArenaRound({ fixtureIndex: 31 }, options)).rejects.toMatchObject({
+      status: 400,
+      code: "bad_request",
+    });
+  });
+
+  it("rejects a non-integer fixtureIndex", async () => {
+    await expect(playArenaRound({ fixtureIndex: 1.5 }, options)).rejects.toMatchObject({
+      status: 400,
+      code: "bad_request",
+    });
+  });
+
+  it("ignores fixtureIndex in live mode", async () => {
+    process.env.ARENA_LIVE_ATTACKER = "1";
+    process.env.ATTACKER_ENDPOINT = "https://attacker.example/v1/chat";
+    process.env.ATTACKER_MODEL = "attacker-demo";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "LIVE_ATTACK_PROMPT_77" } }] }));
+      }),
+    );
+    const round = await playArenaRound({ fixtureIndex: 7 }, options);
+    expect(round.attack.prompt).toBe("LIVE_ATTACK_PROMPT_77");
+    expect(round.attack.prompt).not.toBe(fixtures[6]?.prompt);
+  });
+
+  it("derives the fixture from the round when fixtureIndex is omitted", async () => {
+    const round = await playArenaRound({ history: [{ prompt: "prior", verdict: verdict() }] }, options);
+    expect(round.round).toBe(2);
+    expect(round.attack.prompt).toBe(fixtures[1]?.prompt);
+  });
+});
+
 describe("attacker adapter", () => {
   it("does not send tools and ignores tool calls in the response", async () => {
     process.env.ATTACKER_ENDPOINT = "https://attacker.example/v1/chat";

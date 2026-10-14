@@ -216,6 +216,7 @@ export const decisionReasonSchema = z.enum([
   "upstream_error",
   "score_threshold",
   "invalid_option",
+  "invalid_tool_name",
   "ok",
 ]);
 
@@ -290,9 +291,13 @@ export const arenaHistoryEntrySchema = z
   })
   .strict();
 
+/** Synthetic arena fixtures. `fixtureIndex` is 1-based and stops at this length. */
+const ARENA_FIXTURE_COUNT = 30;
+
 export const arenaRoundRequestSchema = z
   .object({
     history: z.array(arenaHistoryEntrySchema).max(LIMITS.maxHistoryRounds).optional(),
+    fixtureIndex: z.number().int().min(1).max(ARENA_FIXTURE_COUNT).optional(),
   })
   .strict();
 
@@ -329,7 +334,7 @@ export const arenaAttackFixtureSchema = z
   })
   .strict();
 
-export const arenaAttackFixturesSchema = z.array(arenaAttackFixtureSchema).length(30);
+export const arenaAttackFixturesSchema = z.array(arenaAttackFixtureSchema).length(ARENA_FIXTURE_COUNT);
 
 export type PhishingInput = z.infer<typeof phishingInputSchema>;
 export type SocInput = z.infer<typeof socInputSchema>;
