@@ -53,46 +53,44 @@ export function Dashboard({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-6 sm:px-6">
+    <div className="mx-auto flex w-full max-w-[75rem] flex-1 flex-col px-5 py-6 sm:px-8 sm:py-8">
       <a
         href="#decision-main"
-        className="sr-only rounded-md bg-cyan-300 px-3 py-2 text-slate-950 focus:not-sr-only focus:absolute focus:top-3 focus:left-3"
+        className="btn-primary sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50"
       >
         Skip to content
       </a>
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-5">
+      <header className="flex flex-col gap-10">
+        <div className="flex min-h-16 flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-hairline pb-4">
+          <p className="eyebrow">Decision-1 Security Demo</p>
+          <div className="flex flex-wrap items-center gap-4">
+            <Link
+              href="/"
+              data-testid="overview-link"
+              onClick={onOverviewClick}
+              className="nav-link"
+            >
+              Overview
+            </Link>
+            <MockScenarioControl />
+          </div>
+        </div>
         <div>
-          <Link
-            href="/"
-            data-testid="overview-link"
-            onClick={onOverviewClick}
-            className="text-sm font-medium text-cyan-200 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200"
-          >
-            Overview
-          </Link>
-          <p className="mt-3 text-xs font-semibold tracking-[0.18em] text-cyan-200 uppercase">
-            Decision-1 Security Demo
-          </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-50 sm:text-3xl">
-            Security decision console
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+          <h1 className="display-lg text-balance">Security decision console</h1>
+          <p className="lede mt-4 max-w-2xl text-pretty">
             Synthetic samples only. Model text is shown as plain text. Confidence is what the
             model reported, not a calibrated probability.
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <MockScenarioControl />
-        </div>
       </header>
 
       {demo.cooling && demo.cooldown ? (
-        <div className="mt-4">
+        <div className="mt-8">
           <CooldownNotice remainingMs={demo.remainingMs} message={demo.cooldown.message} />
         </div>
       ) : null}
 
-      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="mt-10 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section id="decision-main">
           <div
             role="tablist"
@@ -113,11 +111,7 @@ export function Dashboard({
                   aria-controls={`panel-${id}`}
                   tabIndex={selected ? 0 : -1}
                   onClick={() => onSelectTab(id)}
-                  className={`rounded-full px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200 ${
-                    selected
-                      ? "bg-cyan-300/15 text-cyan-50 ring-1 ring-cyan-300/50"
-                      : "bg-white/5 text-slate-300 hover:bg-white/10"
-                  }`}
+                  className={selected ? "btn-primary" : "btn-outline"}
                 >
                   {TAB_LABELS[id]}
                 </button>
@@ -128,10 +122,10 @@ export function Dashboard({
             role="tabpanel"
             id={`panel-${tab}`}
             aria-labelledby={`tab-${tab}`}
-            className="mt-5 rounded-2xl border border-white/10 bg-[#10192b] p-4 sm:p-5"
+            className="surface-card mt-6 p-5 sm:p-7"
           >
-            <h2 className="text-lg font-semibold text-slate-50">{TAB_LABELS[tab]}</h2>
-            <div className="mt-4">
+            <h2 className="display-sm">{TAB_LABELS[tab]}</h2>
+            <div className="mt-6">
               <PanelBoundary key={tab} title={TAB_LABELS[tab]}>
                 {tab === "phishing" ? <PhishingPanel /> : null}
                 {tab === "soc" ? <SocPanel /> : null}

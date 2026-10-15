@@ -32,14 +32,12 @@ export function DecisionCard({ response, tab }: { response: DecideResponse; tab:
   return (
     <article
       data-testid="decision-card"
-      className="rounded-xl border border-white/10 bg-[#0c1424] p-4 shadow-sm"
+      className="surface-card-quiet p-5 sm:p-6"
     >
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold tracking-wide text-slate-300 uppercase">
-          Model output
-        </h3>
-        <p className="text-sm text-slate-400">
-          Summary <span className="font-medium text-slate-100">{decisionSummary(decision)}</span>
+        <h3 className="eyebrow">Model output</h3>
+        <p className="text-sm text-muted">
+          Summary <span className="font-medium text-ink">{decisionSummary(decision)}</span>
         </p>
       </header>
 
@@ -49,15 +47,13 @@ export function DecisionCard({ response, tab }: { response: DecideResponse; tab:
             <span
               data-testid="yesno-badge"
               data-decision={decision.value ? "yes" : "no"}
-              className={`inline-flex min-w-16 items-center justify-center rounded-full px-3 py-1 text-sm font-semibold ${
-                (tab === "phishing" ? decision.value : !decision.value)
-                  ? "bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/40"
-                  : "bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/40"
+              className={`verdict ${
+                (tab === "phishing" ? decision.value : !decision.value) ? "verdict-danger" : "verdict-safe"
               }`}
             >
               {decision.value ? "Yes" : "No"}
             </span>
-            <p className="text-sm text-slate-200">{yesNoMeaning(tab, decision.value)}</p>
+            <p className="text-sm text-ink">{yesNoMeaning(tab, decision.value)}</p>
           </div>
         ) : null}
 
@@ -72,19 +68,17 @@ export function DecisionCard({ response, tab }: { response: DecideResponse; tab:
                   data-chosen={chosen ? "true" : "false"}
                   aria-current={chosen ? "true" : undefined}
                   className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${
-                    chosen
-                      ? "border-cyan-300/60 bg-cyan-400/10 text-cyan-50"
-                      : "border-white/10 bg-white/5 text-slate-200"
+                    chosen ? "border-ink bg-surface text-ink" : "border-hairline bg-surface text-body"
                   }`}
                 >
                   <span>
-                    {chosen ? <span className="mr-2 font-semibold">Chosen</span> : null}
+                    {chosen ? <span className="mr-2 font-medium">Chosen</span> : null}
                     {option.label}
                   </span>
                   {probability === undefined ? null : (
                     <span
                       data-testid="choice-probability"
-                      className="font-mono text-xs text-slate-300"
+                      className="font-mono text-xs text-muted"
                     >
                       p {formatExact(probability)}
                     </span>
@@ -100,8 +94,8 @@ export function DecisionCard({ response, tab }: { response: DecideResponse; tab:
 
       <div className="mt-5">
         <div className="mb-1 flex items-center justify-between text-sm">
-          <span className="text-slate-300">Confidence</span>
-          <span className="font-mono text-slate-100">{formatNumber(response.confidence)}</span>
+          <span className="text-body">Confidence</span>
+          <span className="font-mono text-ink">{formatNumber(response.confidence)}</span>
         </div>
         <div
           role="meter"
@@ -109,22 +103,22 @@ export function DecisionCard({ response, tab }: { response: DecideResponse; tab:
           aria-valuemin={0}
           aria-valuemax={1}
           aria-valuenow={response.confidence}
-          className="h-2 overflow-hidden rounded-full bg-slate-800"
+          className="meter-track h-2"
         >
           <div
             data-testid="confidence-fill"
-            className="h-full rounded-full bg-cyan-300"
+            className="meter-fill"
             style={{ width: `${confidencePct}%` }}
           />
         </div>
-        <p data-testid="confidence-caption" className="mt-2 text-xs leading-5 text-slate-400">
+        <p data-testid="confidence-caption" className="mt-2 text-xs leading-5 text-muted">
           {CONFIDENCE_CAPTION}
         </p>
       </div>
 
       <div className="mt-5">
-        <h4 className="text-sm font-medium text-slate-300">Rationale</h4>
-        <p className="mt-1 text-sm leading-6 whitespace-pre-wrap break-words text-slate-100">
+        <h4 className="text-sm font-medium text-ink">Rationale</h4>
+        <p className="mt-1 text-sm leading-6 whitespace-pre-wrap break-words text-body">
           {response.rationale && response.rationale.length > 0
             ? response.rationale
             : "No rationale was returned."}
@@ -133,12 +127,12 @@ export function DecisionCard({ response, tab }: { response: DecideResponse; tab:
 
       <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
         <div>
-          <dt className="text-slate-400">Latency</dt>
-          <dd className="font-mono text-slate-100">{formatNumber(response.latencyMs)} ms</dd>
+          <dt className="text-muted">Latency</dt>
+          <dd className="font-mono text-ink">{formatNumber(response.latencyMs)} ms</dd>
         </div>
         <div>
-          <dt className="text-slate-400">Request ID</dt>
-          <dd className="font-mono break-all text-slate-100">{response.requestId}</dd>
+          <dt className="text-muted">Request ID</dt>
+          <dd className="font-mono break-all text-ink">{response.requestId}</dd>
         </div>
       </dl>
     </article>
@@ -158,7 +152,7 @@ function ScoreBar({
 
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+      <div className="mb-1 flex items-center justify-between text-xs text-muted">
         <span>{formatExact(decision.min)}</span>
         <span>{formatExact(decision.max)}</span>
       </div>
@@ -170,11 +164,11 @@ function ScoreBar({
         aria-valuemax={decision.max}
         aria-valuenow={decision.value}
         data-score-pct={String(pct)}
-        className="h-3 overflow-hidden rounded-full bg-slate-800"
+        className="meter-track h-3"
       >
-        <div className="h-full rounded-full bg-amber-300" style={{ width: `${pct}%` }} />
+        <div className="meter-fill" style={{ width: `${pct}%` }} />
       </div>
-      <p className="mt-2 text-sm text-slate-100" data-testid="score-value">
+      <p className="mt-2 text-sm text-ink" data-testid="score-value">
         Score {formatExact(decision.value)}
         {matched ? ` · ${matched.label}` : ""}
       </p>
@@ -187,7 +181,7 @@ function ScoreBar({
               key={level.label}
               data-active={active ? "true" : "false"}
               className={`rounded-full px-2 py-0.5 text-xs ${
-                active ? "bg-amber-300/20 text-amber-100" : "bg-white/5 text-slate-400"
+                active ? "bg-primary text-on-primary" : "bg-surface-strong text-muted"
               }`}
             >
               {level.index} {level.label}
@@ -207,18 +201,18 @@ function ScoreDistribution({ probabilities }: { probabilities: Record<string, nu
         const height = probability === undefined ? 0 : clampPercent(probability * 100);
         return (
           <li key={level.label} className="flex flex-col items-center gap-1 text-center">
-            <div className="flex h-16 w-full items-end rounded bg-slate-800" aria-hidden="true">
+            <div className="flex h-16 w-full items-end rounded bg-surface-strong" aria-hidden="true">
               <div
                 data-level={level.index}
                 data-probability={probability === undefined ? "" : String(probability)}
-                className="w-full rounded-sm bg-amber-200/80"
+                className="w-full rounded-sm bg-primary"
                 style={{ height: `${height}%` }}
               />
             </div>
-            <span className="text-xs text-slate-300">
+            <span className="text-xs text-body">
               {level.index} {level.label}
             </span>
-            <span className="font-mono text-[11px] text-slate-400">
+            <span className="font-mono text-[11px] text-muted">
               {probability === undefined ? "—" : formatExact(probability)}
             </span>
           </li>

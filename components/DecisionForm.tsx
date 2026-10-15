@@ -85,27 +85,19 @@ export function DecisionForm({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-            policy.failMode === "closed"
-              ? "bg-rose-500/10 text-rose-100"
-              : "bg-amber-400/10 text-amber-50"
-          }`}
-        >
+        <span className={policy.failMode === "closed" ? "badge verdict-danger" : "badge verdict-caution"}>
           Fail {policy.failMode}
         </span>
-        <span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-300">
-          {policy.decisionType}
-        </span>
+        <span className="badge">{policy.decisionType}</span>
       </div>
-      <p className="text-sm leading-6 text-slate-300">{intro}</p>
+      <p className="lede">{intro}</p>
       <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
-        <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-200">
+        <label className="flex flex-col gap-1.5 text-sm font-medium text-ink">
           Sample
           <select
             value={presetId}
             onChange={(event) => applyPreset(event.target.value)}
-            className="rounded-md border border-white/10 bg-[#0b1220] px-3 py-2 text-sm font-normal text-slate-100 outline-none focus-visible:border-cyan-300 focus-visible:ring-2 focus-visible:ring-cyan-300/40"
+            className="field-control font-normal"
           >
             {presets.map((preset) => (
               <option key={preset.id} value={preset.id}>
@@ -131,7 +123,7 @@ export function DecisionForm({
           />
         ))}
         {errors.form ? (
-          <p role="alert" className="text-sm text-rose-300">
+          <p role="alert" className="text-sm text-danger">
             {errors.form}
           </p>
         ) : null}
@@ -141,12 +133,12 @@ export function DecisionForm({
             data-testid="submit-decision"
             disabled={isPending || demo.cooling}
             aria-busy={isPending}
-            className="rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-100 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+            className="btn-primary"
           >
             {isPending ? "Judging…" : submitLabel}
           </button>
           {demo.cooling ? (
-            <p className="text-sm text-amber-100">Waiting for the rate limit to clear.</p>
+            <p className="text-sm text-caution">Waiting for the rate limit to clear.</p>
           ) : null}
         </div>
       </form>
@@ -154,7 +146,7 @@ export function DecisionForm({
         {model ? (
           <OutcomeView model={model} tab={tab} remainingMs={demo.remainingMs} />
         ) : (
-          <p className="text-sm text-slate-400">Submit the sample to request a decision.</p>
+          <p className="lede">Submit the sample to request a decision.</p>
         )}
       </div>
     </div>

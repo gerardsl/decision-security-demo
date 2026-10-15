@@ -11,11 +11,11 @@ export function CooldownNotice({
       data-testid="cooldown"
       role="status"
       aria-live="polite"
-      className="rounded-lg border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-50"
+      className="notice notice-caution px-5 py-4 text-sm"
     >
-      <p className="font-semibold">Rate limited</p>
+      <p className="font-medium text-caution">Rate limited</p>
       <p className="mt-1 whitespace-pre-wrap break-words">{message}</p>
-      <p className="mt-1 font-mono">Try again in {seconds}s.</p>
+      <p className="mt-1 font-mono text-ink">Try again in {seconds}s.</p>
     </div>
   );
 }
