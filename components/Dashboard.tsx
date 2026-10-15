@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
+import type { KeyboardEvent, MouseEvent } from "react";
+import Link from "next/link";
 import { TABS, type Tab } from "@/lib/contract";
-import { tabReturnPath } from "@/lib/return-to";
 import { ArenaPanel } from "@/components/ArenaPanel";
 import { CooldownNotice } from "@/components/CooldownNotice";
 import { useDemo } from "@/components/demo-context";
@@ -20,14 +19,21 @@ const TAB_LABELS: Record<Tab, string> = {
   arena: "Red vs Blue arena",
 };
 
-export function Dashboard({ initialTab }: { initialTab: Tab }) {
+export function Dashboard({
+  tab,
+  onSelectTab,
+  onOverview,
+}: {
+  tab: Tab;
+  onSelectTab: (tab: Tab) => void;
+  onOverview: () => void;
+}) {
   const demo = useDemo();
-  const router = useRouter();
-  const [tab, setTab] = useState<Tab>(initialTab);
 
-  function selectTab(id: Tab) {
-    setTab(id);
-    router.replace(tabReturnPath(id), { scroll: false });
+  function onOverviewClick(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    onOverview();
   }
 
   function onTabKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -42,7 +48,7 @@ export function Dashboard({ initialTab }: { initialTab: Tab }) {
     event.preventDefault();
     const id = TABS[next];
     if (!id) return;
-    selectTab(id);
+    onSelectTab(id);
     document.getElementById(`tab-${id}`)?.focus();
   }
 
@@ -56,7 +62,15 @@ export function Dashboard({ initialTab }: { initialTab: Tab }) {
       </a>
       <header className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-5">
         <div>
-          <p className="text-xs font-semibold tracking-[0.18em] text-cyan-200 uppercase">
+          <Link
+            href="/"
+            data-testid="overview-link"
+            onClick={onOverviewClick}
+            className="text-sm font-medium text-cyan-200 underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200"
+          >
+            Overview
+          </Link>
+          <p className="mt-3 text-xs font-semibold tracking-[0.18em] text-cyan-200 uppercase">
             Decision-1 Security Demo
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-50 sm:text-3xl">
@@ -98,7 +112,7 @@ export function Dashboard({ initialTab }: { initialTab: Tab }) {
                   aria-selected={selected}
                   aria-controls={`panel-${id}`}
                   tabIndex={selected ? 0 : -1}
-                  onClick={() => selectTab(id)}
+                  onClick={() => onSelectTab(id)}
                   className={`rounded-full px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200 ${
                     selected
                       ? "bg-cyan-300/15 text-cyan-50 ring-1 ring-cyan-300/50"
