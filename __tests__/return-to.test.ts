@@ -24,5 +24,7 @@ describe("same-origin return path", () => {
     expect(safeNextPath("/%2F%2Fevil.example")).toBe("/");
     expect(safeNextPath("/login")).toBe("/");
     expect(safeNextPath("/login?next=/?tab=mcp")).toBe("/");
+    expect(safeNextPath("%2F%2Fevil.example")).toBe("/");
+    expect(safeNextPath("%252F%252Fevil.example")).toBe("/");
   });
 });

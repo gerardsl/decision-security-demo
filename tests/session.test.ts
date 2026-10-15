@@ -5,6 +5,7 @@ import { POST as passcode } from "@/app/api/auth/passcode/route";
 import { assertSession } from "@/lib/auth";
 import { ApiError } from "@/lib/http";
 import { pageGate } from "@/lib/page-gate";
+import { safeNextPath } from "@/lib/return-to";
 import { proxy } from "@/proxy";
 import {
   SESSION_COOKIE,
@@ -65,9 +66,19 @@ describe("passcode session", () => {
     expect(pageGate("/api/decide", true)).toBe("allow");
 
     const redirect = proxy(new NextRequest("http://localhost/"));
-    expect(redirect.headers.get("location")).toBe("http://localhost/login");
+    expect(redirect.headers.get("location")).toBe("http://localhost/login?next=%2F");
+    const mcp = proxy(new NextRequest("http://localhost/?tab=mcp"));
+    expect(mcp.headers.get("location")).toBe("http://localhost/login?next=%2F%3Ftab%3Dmcp");
+    const mcpNext = new URL(mcp.headers.get("location") ?? "").searchParams.get("next");
+    expect(safeNextPath(mcpNext)).toBe("/?tab=mcp");
+    const offHost = proxy(new NextRequest("https://evil.example/?tab=mcp"));
+    const offNext = new URL(offHost.headers.get("location") ?? "").searchParams.get("next");
+    expect(offNext).toBe("/?tab=mcp");
+    expect(offNext).not.toContain("evil.example");
+    expect(offNext).not.toContain("https");
     const denied = proxy(new NextRequest("http://localhost/api/decide"));
     expect(denied.status).toBe(401);
+    expect(denied.headers.get("location")).toBeNull();
     const allowed = proxy(
       new NextRequest("http://localhost/", { headers: { cookie: sessionCookie() } }),
     );
@@ -99,7 +110,7 @@ describe("passcode session", () => {
     const redirect = proxy(
       new NextRequest("http://localhost/", { headers: { cookie: `${SESSION_COOKIE}=${value}` } }),
     );
-    expect(redirect.headers.get("location")).toBe("http://localhost/login");
+    expect(redirect.headers.get("location")).toBe("http://localhost/login?next=%2F");
     const denied = proxy(
       new NextRequest("http://localhost/api/decide", { headers: { cookie: `${SESSION_COOKIE}=${value}` } }),
     );
