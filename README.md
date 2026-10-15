@@ -143,7 +143,9 @@ Decision-1 endpoint, deployment name (`Decision-1`), tenant id, and client id ar
 
 ## Frontend
 
-The console is the home page. Five tabs share one decision card. Phishing and SOC headlines show the verdict (`Phishing` / `Legitimate`, or the SOC label such as `Benign`). MCP, DLP, and the arena show `Allowed`, `Blocked`, or `Undecided` from `outcome` only. The browser does not apply `CONFIDENCE_THRESHOLD` or `DLP_BLOCK_SCORE`; those cutoffs are display text.
+`/` with no `tab` query is an overview of the five use cases. Start demo and each Try it action open `/?tab=` for that demo, and an Overview link returns to `/`. Signing in with no `next` path lands on `/`, so the overview is the first screen after the passcode. A 401 from a decision request still returns to the tab that was open. Nothing about the overview is stored on the server.
+
+The console is the tab view. Five tabs share one decision card. Phishing and SOC headlines show the verdict (`Phishing` / `Legitimate`, or the SOC label such as `Benign`). MCP, DLP, and the arena show `Allowed`, `Blocked`, or `Undecided` from `outcome` only. The browser does not apply `CONFIDENCE_THRESHOLD` or `DLP_BLOCK_SCORE`; those cutoffs are display text.
 
 A 502 whose body parses as a decide response renders that card, including `timeout`, `upstream_error`, and `invalid_option`. A bare `{ error }` body, including a plain 502, is a generic error. A bare 400 is bad input. A 429 starts a countdown from `retryAfterMs`.
 

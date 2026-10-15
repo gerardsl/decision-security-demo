@@ -16,7 +16,8 @@ export function proxy(request: NextRequest) {
       { status: 401 },
     );
   }
-  return NextResponse.redirect(new URL("/login", request.url));
+  const next = `${pathname}${request.nextUrl.search}`;
+  return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(next)}`, request.url));
 }
 
 export const config = {
