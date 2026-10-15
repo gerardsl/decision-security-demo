@@ -78,11 +78,11 @@ export function PasscodeForm() {
       method="post"
       action="/api/auth/passcode"
       onSubmit={onSubmit}
-      className="flex w-full flex-col gap-3 rounded-2xl border border-white/10 bg-[#10192b] p-5"
+      className="surface-card mt-8 flex w-full flex-col gap-4 p-6 sm:p-8"
       data-testid="passcode-form"
       noValidate
     >
-      <label htmlFor="passcode" className="text-sm font-medium text-slate-200">
+      <label htmlFor="passcode" className="text-sm font-medium text-ink">
         Passcode
       </label>
       <input
@@ -92,18 +92,18 @@ export function PasscodeForm() {
         autoComplete="current-password"
         required
         spellCheck={false}
-        className="rounded-md border border-white/10 bg-[#0b1220] px-3 py-2 text-sm text-slate-100 outline-none focus-visible:border-cyan-300 focus-visible:ring-2 focus-visible:ring-cyan-300/40"
+        className="field-control"
       />
       <button
         type="submit"
         disabled={pending || cooling}
         aria-busy={pending}
-        className="rounded-md bg-cyan-300 px-3 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+        className="btn-primary mt-1 w-fit"
       >
         {pending ? "Checking…" : "Continue"}
       </button>
       {error ? (
-        <p role="alert" className="text-sm text-rose-200">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       ) : null}

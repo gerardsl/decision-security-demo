@@ -13,19 +13,31 @@ export default function GlobalError({
         style={{
           margin: 0,
           minHeight: "100vh",
-          background: "#070d18",
-          color: "#e7eefc",
-          fontFamily: "Segoe UI, sans-serif",
+          background: "#f5f5f5",
+          color: "#4e4e4e",
+          fontFamily: '"Iowan Old Style", Palatino, "Palatino Linotype", "Times New Roman", serif',
         }}
       >
-        <main style={{ maxWidth: 520, margin: "0 auto", padding: "64px 24px" }}>
-          <h1 style={{ fontSize: 28, marginBottom: 12 }}>This page hit an unexpected error</h1>
-          <p style={{ lineHeight: 1.6 }}>
+        <div
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            pointerEvents: "none",
+            background:
+              "radial-gradient(420px 420px at 90% 0%, rgba(167,229,211,0.85), transparent 70%), radial-gradient(380px 380px at 0% 40%, rgba(244,197,168,0.75), transparent 70%), radial-gradient(320px 320px at 70% 100%, rgba(200,184,224,0.7), transparent 70%)",
+          }}
+        />
+        <main style={{ position: "relative", maxWidth: 560, margin: "0 auto", padding: "96px 24px" }}>
+          <h1 style={{ fontWeight: 300, fontSize: 36, lineHeight: 1.17, letterSpacing: "-0.36px", color: "#0c0a09", margin: 0 }}>
+            This page hit an unexpected error
+          </h1>
+          <p style={{ lineHeight: 1.5, letterSpacing: "0.16px", fontFamily: 'Inter, ui-sans-serif, system-ui, "Segoe UI", sans-serif' }}>
             The console could not keep rendering. Nothing on this screen is an automated security
             action.
           </p>
           {error.digest ? (
-            <p style={{ fontFamily: "ui-monospace, monospace", fontSize: 12 }}>
+            <p style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#777169" }}>
               Reference {error.digest}
             </p>
           ) : null}
@@ -33,13 +45,17 @@ export default function GlobalError({
             type="button"
             onClick={() => retry()}
             style={{
-              marginTop: 20,
-              background: "#67e8f9",
-              color: "#082f49",
+              marginTop: 28,
+              background: "#292524",
+              color: "#ffffff",
               border: 0,
-              borderRadius: 6,
-              padding: "8px 14px",
-              fontWeight: 700,
+              borderRadius: 9999,
+              padding: "10px 20px",
+              minHeight: 40,
+              fontWeight: 500,
+              fontSize: 15,
+              fontFamily: 'Inter, ui-sans-serif, system-ui, "Segoe UI", sans-serif',
+              cursor: "pointer",
             }}
           >
             Try again
