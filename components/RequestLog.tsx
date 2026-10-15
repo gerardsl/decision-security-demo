@@ -16,30 +16,26 @@ export function RequestLog() {
   const demo = useDemo();
 
   return (
-    <aside className="rounded-xl border border-white/10 bg-[#10192b] p-4" aria-label="Request log">
+    <aside className="surface-card p-5 sm:p-6" aria-label="Request log">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-100">Request log</h2>
-          <p className="mt-1 text-xs leading-5 text-slate-400">
+          <h2 className="title">Request log</h2>
+          <p className="mt-2 text-sm leading-6 text-muted">
             This list stays in memory for the current visit. It records the tab, decision,
             confidence, latency, and request ID only.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={demo.clearLog}
-          className="shrink-0 rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"
-        >
+        <button type="button" onClick={demo.clearLog} className="btn-outline shrink-0">
           Clear
         </button>
       </div>
       {demo.entries.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-400">No decisions yet in this session.</p>
+        <p className="lede mt-5">No decisions yet in this session.</p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-5 overflow-x-auto">
           <table className="w-full min-w-[28rem] border-collapse text-left text-sm">
             <caption className="sr-only">Session request log</caption>
-            <thead className="text-xs tracking-wide text-slate-400 uppercase">
+            <thead className="text-xs tracking-[0.08em] text-muted uppercase">
               <tr>
                 <th scope="col" className="py-2 pr-3 font-medium">
                   Tab
@@ -60,16 +56,16 @@ export function RequestLog() {
             </thead>
             <tbody>
               {demo.entries.map((entry) => (
-                <tr key={entry.localId} className="border-t border-white/10 align-top">
-                  <td className="py-2 pr-3 text-slate-100">{entry.tab}</td>
-                  <td className="py-2 pr-3 text-slate-100">{entry.decision}</td>
-                  <td className="py-2 pr-3 font-mono text-slate-200">
+                <tr key={entry.localId} className="border-t border-hairline align-top">
+                  <td className="py-2 pr-3 text-ink">{entry.tab}</td>
+                  <td className="py-2 pr-3 text-ink">{entry.decision}</td>
+                  <td className="py-2 pr-3 font-mono text-body">
                     {formatConfidence(entry.confidence)}
                   </td>
-                  <td className="py-2 pr-3 font-mono text-slate-200">
+                  <td className="py-2 pr-3 font-mono text-body">
                     {formatLatency(entry.latencyMs)}
                   </td>
-                  <td className="py-2 font-mono text-xs break-all text-slate-300">
+                  <td className="py-2 font-mono text-xs break-all text-muted">
                     {entry.requestId ?? "—"}
                   </td>
                 </tr>
