@@ -90,12 +90,12 @@ describe("client model latency", () => {
     expect(formatModelCell(12, "other", 180)).toBe("unavailable");
   });
 
-  it("caps model time at total and warns with both values", () => {
+  it("shows the real model time when it exceeds total and warns with both values", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(formatModelCell(40, "ok", 180)).toBe("40 ms");
     expect(warn).not.toHaveBeenCalled();
 
-    expect(formatModelCell(9_000, "ok", 180)).toBe("180 ms");
+    expect(formatModelCell(9_000, "ok", 180)).toBe("9,000 ms");
     expect(warn).toHaveBeenCalledTimes(1);
     const message = String(warn.mock.calls[0]?.[0]);
     expect(message).toContain("9000");

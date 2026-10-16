@@ -67,7 +67,7 @@ describe("latency table", () => {
     vi.restoreAllMocks();
   });
 
-  test("shows browser total and caps Decision-1 model time, warning with both values", async () => {
+  test("shows the real Decision-1 model time when it exceeds total, and warns with both values", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const clock = installClock(180);
     submitDecide.mockImplementation(async () => {
@@ -99,9 +99,7 @@ describe("latency table", () => {
     const [latestModel, earlierModel] = log().getAllByTestId("latency-model");
     const [latestTotal] = log().getAllByTestId("latency-total");
     expect(latestTotal?.textContent).toBe("180 ms");
-    expect(latestModel?.textContent).toBe("180 ms");
-    expect(latestModel?.textContent).not.toContain("9,000");
-    expect(latestModel?.textContent).not.toContain("9000");
+    expect(latestModel?.textContent).toBe("9,000 ms");
     expect(earlierModel?.textContent).toBe("42 ms");
     expect(warn).toHaveBeenCalledTimes(1);
     const message = String(warn.mock.calls[0]?.[0]);

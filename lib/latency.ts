@@ -3,8 +3,9 @@
  *
  * Total is the click-to-parsed-response round trip. Model time comes only from
  * the top-level `modelMs` field, and only when `modelStatus` is "ok".
- * A null `modelMs` stays null. The model cell is capped at Total, and a
- * console warning records both numbers when the raw model time is larger.
+ * A null `modelMs` stays null. The shown model time is the real `modelMs`,
+ * even when it is larger than Total. A console warning records both numbers
+ * in that case.
  */
 
 export type ClientTiming = {
@@ -70,8 +71,8 @@ export function formatLatencyCell(value: number | null): string {
 
 /**
  * Model column text. A number is shown only for status "ok" and a finite
- * modelMs >= 0. That number is never presented as larger than Total; the
- * raw pair is written to the console when the cap applies.
+ * modelMs >= 0. The displayed value is that real modelMs, including when it
+ * exceeds Total. The console records both numbers in that case.
  */
 export function formatModelCell(
   modelMs: number | null,
@@ -87,9 +88,8 @@ export function formatModelCell(
   const total = finiteLatencyMs(totalMs);
   if (total !== null && model > total) {
     console.warn(
-      `Decision-1 model latency ${model} ms exceeds total round trip ${total} ms. Showing ${total} ms.`,
+      `Decision-1 model latency ${model} ms exceeds total round trip ${total} ms.`,
     );
-    return formatLatencyCell(total);
   }
   return formatLatencyCell(model);
 }
