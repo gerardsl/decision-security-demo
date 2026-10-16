@@ -1,6 +1,6 @@
 import "server-only";
 import { ClientSecretCredential } from "@azure/identity";
-import { integerMs, timedModelBody, type TimedModelBody } from "@/lib/model-timing";
+import { timedModelBody, type TimedModelBody } from "@/lib/model-timing";
 export const DECISION_ENDPOINT =
   "https://decision-gerards-resource.services.ai.azure.com/providers/microsoft/v1/systemone";
 export const AZURE_TENANT_ID = "ad2e140d-9fac-4f68-9aee-70fac41f2ee7";
@@ -10,14 +10,11 @@ export const UPSTREAM_TIMEOUT_MS = 8_000;
 
 export class DecisionCallError extends Error {
   readonly reason: "timeout" | "upstream";
-  /** Integer ms from the start of `fetch` until this failure. Null if `fetch` never started. */
-  readonly modelMs: number | null;
 
-  constructor(reason: "timeout" | "upstream", modelMs: number | null = null) {
+  constructor(reason: "timeout" | "upstream") {
     super(reason);
     this.name = "DecisionCallError";
     this.reason = reason;
-    this.modelMs = integerMs(modelMs);
   }
 }
 
@@ -82,17 +79,16 @@ export function createDecisionCaller(options?: {
         signal: timeout,
       });
     } catch (error) {
-      const modelMs = elapsedSince(started);
-      if (isTimeout(error)) throw new DecisionCallError("timeout", modelMs);
-      throw new DecisionCallError("upstream", modelMs);
+      if (isTimeout(error)) throw new DecisionCallError("timeout");
+      throw new DecisionCallError("upstream");
     }
-    if (!response.ok) throw new DecisionCallError("upstream", elapsedSince(started));
+    if (!response.ok) throw new DecisionCallError("upstream");
     try {
       const payload = await response.json();
       return timedModelBody(payload, elapsedSince(started));
     } catch (error) {
       if (error instanceof DecisionCallError) throw error;
-      throw new DecisionCallError("upstream", elapsedSince(started));
+      throw new DecisionCallError("upstream");
     }
   };
 }

@@ -2,7 +2,7 @@ import "server-only";
 import type { DecideRequest } from "@/lib/contract";
 import type { DemoFault } from "@/lib/faults";
 import { ApiError } from "@/lib/http";
-import { NO_MODEL_TIMING, integerMs, readTimedModelBody, type ModelTiming } from "@/lib/model-timing";
+import { NO_MODEL_TIMING, readTimedModelBody, type ModelTiming } from "@/lib/model-timing";
 import { applyPolicy, failureDecision, type SettledDecision } from "@/lib/policy";
 import {
   buildSystemOneRequest,
@@ -38,13 +38,13 @@ export async function decide(input: DecideRequest, options: DecideOptions = {}):
     return finish(applyPolicy(input.tab, parseModelJudgment(input.tab, timed ? timed.body : raw)), observed);
   } catch (error) {
     if (error instanceof DecisionCallError) {
-      const timing =
-        observed.modelStatus === null
-          ? {
-              modelMs: integerMs(error.modelMs),
-              modelStatus: error.reason === "timeout" ? ("timeout" as const) : ("error" as const),
-            }
-          : observed;
+      const timing: ModelTiming =
+        observed.modelStatus === "ok"
+          ? observed
+          : {
+              modelMs: null,
+              modelStatus: error.reason === "timeout" ? "timeout" : "error",
+            };
       return finish(
         failureDecision(input.tab, error.reason === "timeout" ? "timeout" : "upstream_error"),
         timing,
@@ -54,13 +54,16 @@ export async function decide(input: DecideRequest, options: DecideOptions = {}):
     if (error instanceof ApiError) throw error;
     return finish(
       failureDecision(input.tab, "upstream_error"),
-      observed.modelStatus === null ? { modelMs: observed.modelMs, modelStatus: "error" } : observed,
+      observed.modelStatus === "ok" ? observed : { modelMs: null, modelStatus: "error" },
     );
   }
 }
 
 function finish(settled: SettledDecision, timing: ModelTiming): SettledDecision {
-  return { ...settled, modelMs: timing.modelMs, modelStatus: timing.modelStatus };
+  if (timing.modelStatus !== "ok") {
+    return { ...settled, modelMs: null, modelStatus: timing.modelStatus };
+  }
+  return { ...settled, modelMs: timing.modelMs, modelStatus: "ok" };
 }
 
 async function loadUpstream(input: DecideRequest, options: DecideOptions): Promise<unknown> {

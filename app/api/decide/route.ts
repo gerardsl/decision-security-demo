@@ -5,7 +5,7 @@ import { decide } from "@/lib/decide";
 import { readDemoFault } from "@/lib/faults";
 import { ApiError, jsonError, readJsonBody } from "@/lib/http";
 import { logDecision } from "@/lib/log";
-import { modelServerTiming } from "@/lib/model-timing";
+import { modelTimingHeaders } from "@/lib/model-timing";
 import { enforceRateLimit } from "@/lib/ratelimit";
 
 export async function POST(request: Request): Promise<Response> {
@@ -41,7 +41,7 @@ export async function POST(request: Request): Promise<Response> {
     });
     return Response.json(checked.data, {
       status: settled.httpStatus,
-      headers: { "Server-Timing": modelServerTiming(checked.data.modelMs) },
+      headers: modelTimingHeaders(checked.data),
     });
   } catch (error) {
     const apiError = error instanceof ApiError ? error : new ApiError("upstream", "Upstream decision failed.");

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DecideRequest } from "@/lib/contract";
 import { decide } from "@/lib/decide";
-import { modelServerTiming } from "@/lib/model-timing";
+import { modelServerTiming, modelTimingHeaders } from "@/lib/model-timing";
 import { createDecisionCaller } from "@/lib/upstream";
 
 const YES = { answers: { verdict: { type: "noul", noul: 0.92 } } };
@@ -50,16 +50,17 @@ describe("model latency window", () => {
     const latencyMs = Date.now() - started;
     const span = bodyEnded - fetchStarted;
     expect(settled).toMatchObject({ outcome: "allow", reason: "ok", modelStatus: "ok" });
-    expect(Number.isInteger(settled.modelMs)).toBe(true);
+    expect(Number.isFinite(settled.modelMs)).toBe(true);
     expect(settled.modelMs).toBeGreaterThanOrEqual(Math.round(span) - 5);
     expect(settled.modelMs).toBeLessThanOrEqual(Math.round(span) + 20);
     expect(performance.now() - origin - (settled.modelMs ?? 0)).toBeGreaterThanOrEqual(60);
     expect(settled.modelMs).toBeLessThanOrEqual(latencyMs);
-    expect(modelServerTiming(settled.modelMs)).toBe(`model;dur=${settled.modelMs}`);
+    expect(modelServerTiming(settled.modelMs ?? 0)).toBe(`model;dur=${settled.modelMs}`);
+    expect(modelTimingHeaders(settled)).toEqual({ "Server-Timing": `model;dur=${settled.modelMs}` });
     expect(JSON.stringify(settled)).not.toContain("TEST_BEARER_TOKEN_VALUE");
   });
 
-  it("keeps elapsed model time on timeout and preserves fail-open and fail-closed", async () => {
+  it("leaves modelMs null on timeout and preserves fail-open and fail-closed", async () => {
     const caller = createDecisionCaller({
       tokenProvider: async () => "TEST_BEARER_TOKEN_VALUE",
       fetchImpl: async () => {
@@ -67,33 +68,29 @@ describe("model latency window", () => {
         throw Object.assign(new Error("Bearer TEST_BEARER_TOKEN_VALUE"), { name: "TimeoutError" });
       },
     });
-    const openStarted = Date.now();
     const open = await decide(phishing, { callDecision: caller });
-    const openTotal = Date.now() - openStarted;
     expect(open).toMatchObject({
       outcome: "undecided",
       reason: "timeout",
       httpStatus: 502,
+      modelMs: null,
       modelStatus: "timeout",
     });
-    expect(open.modelMs).toBeGreaterThanOrEqual(25);
-    expect(open.modelMs).toBeLessThanOrEqual(openTotal);
     expect(JSON.stringify(open)).not.toContain("TEST_BEARER_TOKEN_VALUE");
+    expect(modelTimingHeaders(open)).toBeUndefined();
 
-    const closedStarted = Date.now();
     const closed = await decide(mcp, { callDecision: caller });
-    const closedTotal = Date.now() - closedStarted;
     expect(closed).toMatchObject({
       outcome: "block",
       reason: "timeout",
       httpStatus: 502,
+      modelMs: null,
       modelStatus: "timeout",
     });
-    expect(closed.modelMs).toBeGreaterThanOrEqual(25);
-    expect(closed.modelMs).toBeLessThanOrEqual(closedTotal);
+    expect(modelTimingHeaders(closed)).toBeUndefined();
   });
 
-  it("records elapsed time for HTTP and JSON failures and does not read an error body", async () => {
+  it("leaves modelMs null for HTTP and JSON failures and does not read an error body", async () => {
     let read = false;
     const http = createDecisionCaller({
       tokenProvider: async () => "TEST_BEARER_TOKEN_VALUE",
@@ -112,17 +109,14 @@ describe("model latency window", () => {
         } as Response;
       },
     });
-    const started = Date.now();
     const failed = await decide(phishing, { callDecision: http });
-    const total = Date.now() - started;
     expect(failed).toMatchObject({
       outcome: "undecided",
       reason: "upstream_error",
       httpStatus: 502,
+      modelMs: null,
       modelStatus: "error",
     });
-    expect(failed.modelMs).toBeGreaterThanOrEqual(15);
-    expect(failed.modelMs).toBeLessThanOrEqual(total);
     expect(read).toBe(false);
     expect(JSON.stringify(failed)).not.toContain("azure-client-secret-value");
 
@@ -135,9 +129,10 @@ describe("model latency window", () => {
       outcome: "block",
       reason: "upstream_error",
       httpStatus: 502,
+      modelMs: null,
       modelStatus: "error",
     });
-    expect(Number.isInteger(badJson.modelMs)).toBe(true);
+    expect(modelTimingHeaders(badJson)).toBeUndefined();
     expect(JSON.stringify(badJson)).not.toContain("TEST_BEARER_TOKEN_VALUE");
     expect(JSON.stringify(badJson)).not.toContain("not-json");
   });
@@ -160,8 +155,9 @@ describe("model latency window", () => {
       httpStatus: 502,
       modelStatus: "ok",
     });
-    expect(Number.isInteger(settled.modelMs)).toBe(true);
+    expect(Number.isFinite(settled.modelMs)).toBe(true);
     expect(settled.modelMs).toBeLessThanOrEqual(latencyMs + 1);
+    expect(modelTimingHeaders(settled)).toEqual({ "Server-Timing": `model;dur=${settled.modelMs}` });
   });
 
   it("leaves modelMs null when the token fails before fetch", async () => {
@@ -185,7 +181,7 @@ describe("model latency window", () => {
       modelStatus: "error",
     });
     expect(JSON.stringify(settled)).not.toContain("azure-client-secret-value");
-    expect(modelServerTiming(null)).toBe("model;dur=0");
+    expect(modelTimingHeaders(settled)).toBeUndefined();
   });
 
   it("leaves both fields null when the tool name never reaches the model", async () => {

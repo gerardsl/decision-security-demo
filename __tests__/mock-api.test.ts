@@ -149,7 +149,7 @@ describe("mock API", () => {
     }
   });
 
-  test("reports a simulated model duration at or under total latency", () => {
+  test("reports a finite modelMs only when the simulated call succeeded", () => {
     const request = requestsFor("phishing")[0];
     if (!request) throw new Error("preset");
     const statuses = {
@@ -163,10 +163,13 @@ describe("mock API", () => {
       const result = mockDecideSync(request, scenario);
       const raw = result.ok ? result.data : result.fault.kind === "http" ? result.fault.body : null;
       const body = decideResponseSchema.parse(raw);
-      expect(body.modelMs).toEqual(expect.any(Number));
-      expect(Number.isInteger(body.modelMs)).toBe(true);
-      expect(body.modelMs).toBeLessThanOrEqual(body.latencyMs);
       expect(body.modelStatus).toBe(statuses[scenario]);
+      if (body.modelStatus === "ok") {
+        expect(Number.isFinite(body.modelMs)).toBe(true);
+        expect(body.modelMs).toBeLessThanOrEqual(body.latencyMs);
+      } else {
+        expect(body.modelMs).toBeNull();
+      }
     }
   });
 

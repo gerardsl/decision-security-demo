@@ -132,18 +132,17 @@ function placeholderDecision(tab: Tab): Decision {
 }
 
 /**
- * Mock mode does not call Decision-1. Decide samples report a simulated model
- * duration (`modelMs`) that is an integer less than or equal to `latencyMs`,
- * plus `modelStatus`. Null is reserved for a server response whose fetch timer
- * never started; these samples do not use null.
+ * Mock mode does not call Decision-1. A simulated `"ok"` call reports a finite
+ * `modelMs` at or below `latencyMs`. `"error"` and `"timeout"` leave `modelMs`
+ * null, matching the live contract.
  */
 function simulatedModel(reason: DecisionReason): {
   latencyMs: number;
   modelMs: number | null;
   modelStatus: DecideResponse["modelStatus"];
 } {
-  if (reason === "timeout") return { latencyMs: 30_000, modelMs: 30_000, modelStatus: "timeout" };
-  if (reason === "upstream_error") return { latencyMs: 48, modelMs: 40, modelStatus: "error" };
+  if (reason === "timeout") return { latencyMs: 30_000, modelMs: null, modelStatus: "timeout" };
+  if (reason === "upstream_error") return { latencyMs: 48, modelMs: null, modelStatus: "error" };
   if (reason === "invalid_option") return { latencyMs: 48, modelMs: 36, modelStatus: "ok" };
   return { latencyMs: 48, modelMs: null, modelStatus: null };
 }

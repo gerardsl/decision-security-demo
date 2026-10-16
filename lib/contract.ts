@@ -238,15 +238,15 @@ export const decideResponseSchema = z
     /** Handler total, from the start of the route. Unchanged by model timing. */
     latencyMs: z.number().nonnegative(),
     /**
-     * Integer milliseconds for the upstream Decision-1 fetch only: from just
+     * Integer milliseconds for a successful upstream Decision-1 fetch: from just
      * before `fetch` until the response body is fully read. Excludes token
-     * acquisition, input validation, and rate-limit checks. On timeout or
-     * transport failure this is the time until that failure. Null when the
-     * fetch timer never started.
+     * acquisition, input validation, and rate-limit checks. Null unless
+     * `modelStatus` is `"ok"`. Error and timeout responses do not report the
+     * elapsed time.
      *
-     * Mock mode (`lib/mock-api.ts`) reports a simulated duration that is an
-     * integer less than or equal to `latencyMs`, not null. Null stays valid
-     * so a response that never called the model still parses.
+     * Mock mode (`lib/mock-api.ts`) reports a simulated finite duration at or
+     * below `latencyMs` when the simulated status is `"ok"`, and null when
+     * that status is `"error"` or `"timeout"`.
      */
     modelMs: z.number().int().nonnegative().nullable(),
     /** See `modelStatusSchema`. Null when no Decision-1 fetch was attempted. */
@@ -267,6 +267,21 @@ export const decideResponseSchema = z
         code: "custom",
         path: ["reason"],
         message: "Only an allow outcome uses reason ok.",
+      });
+    }
+    if (value.modelStatus === "ok") {
+      if (typeof value.modelMs !== "number" || !Number.isFinite(value.modelMs)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["modelMs"],
+          message: "A successful model call includes a finite modelMs.",
+        });
+      }
+    } else if (value.modelMs !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["modelMs"],
+        message: "modelMs is null unless modelStatus is ok.",
       });
     }
   });

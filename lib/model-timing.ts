@@ -44,10 +44,13 @@ export function readTimedModelBody(value: unknown): { body: unknown; timing: Mod
   return { body: record.body, timing: { modelMs, modelStatus: "ok" } };
 }
 
-/**
- * Decide responses always send this header. `dur` is `modelMs`, or 0 when the
- * fetch timer never started (`modelMs` is null). The browser measures total.
- */
-export function modelServerTiming(modelMs: number | null): string {
-  return `model;dur=${modelMs ?? 0}`;
+/** Header for a successful model fetch. The browser measures total. */
+export function modelServerTiming(modelMs: number): string {
+  return `model;dur=${modelMs}`;
+}
+
+/** Present only when the model call succeeded. Error and timeout responses omit it. */
+export function modelTimingHeaders(timing: ModelTiming): { "Server-Timing": string } | undefined {
+  if (timing.modelStatus !== "ok" || timing.modelMs === null || !Number.isFinite(timing.modelMs)) return undefined;
+  return { "Server-Timing": modelServerTiming(timing.modelMs) };
 }
