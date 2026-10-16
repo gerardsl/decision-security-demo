@@ -1,15 +1,23 @@
 "use client";
 
 import { useDemo } from "@/components/demo-context";
+import { formatLatencyCell, presentedModelMs } from "@/lib/latency";
 
 function formatConfidence(value: number | null): string {
   if (value === null) return "—";
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
 
-function formatLatency(value: number | null): string {
-  if (value === null) return "—";
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value)} ms`;
+function LatencyCell({ value, testId }: { value: number | null; testId: string }) {
+  const text = formatLatencyCell(value);
+  return (
+    <td
+      data-testid={testId}
+      className={`py-2 pr-3 font-mono ${text === "unavailable" ? "text-muted" : "text-body"}`}
+    >
+      {text}
+    </td>
+  );
 }
 
 export function RequestLog() {
@@ -22,7 +30,8 @@ export function RequestLog() {
           <h2 className="title">Request log</h2>
           <p className="mt-2 text-sm leading-6 text-muted">
             This list stays in memory for the current visit. It records the tab, decision,
-            confidence, latency, and request ID only.
+            confidence, request ID, and two timings. Total is the browser round trip. Model
+            (Decision-1) is only the model call, when the service reports it.
           </p>
         </div>
         <button type="button" onClick={demo.clearLog} className="btn-outline shrink-0">
@@ -33,8 +42,10 @@ export function RequestLog() {
         <p className="lede mt-5">No decisions yet in this session.</p>
       ) : (
         <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[28rem] border-collapse text-left text-sm">
-            <caption className="sr-only">Session request log</caption>
+          <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
+            <caption className="sr-only">
+              Session request log with total round trip and Decision-1 model latency in milliseconds
+            </caption>
             <thead className="text-xs tracking-[0.08em] text-muted uppercase">
               <tr>
                 <th scope="col" className="py-2 pr-3 font-medium">
@@ -47,7 +58,10 @@ export function RequestLog() {
                   Confidence
                 </th>
                 <th scope="col" className="py-2 pr-3 font-medium">
-                  Latency
+                  Total
+                </th>
+                <th scope="col" className="py-2 pr-3 font-medium">
+                  Model (Decision-1)
                 </th>
                 <th scope="col" className="py-2 font-medium">
                   Request ID
@@ -62,9 +76,11 @@ export function RequestLog() {
                   <td className="py-2 pr-3 font-mono text-body">
                     {formatConfidence(entry.confidence)}
                   </td>
-                  <td className="py-2 pr-3 font-mono text-body">
-                    {formatLatency(entry.latencyMs)}
-                  </td>
+                  <LatencyCell value={entry.totalMs} testId="latency-total" />
+                  <LatencyCell
+                    value={presentedModelMs(entry.modelMs, entry.totalMs)}
+                    testId="latency-model"
+                  />
                   <td className="py-2 font-mono text-xs break-all text-muted">
                     {entry.requestId ?? "—"}
                   </td>

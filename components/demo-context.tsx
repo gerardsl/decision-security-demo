@@ -12,6 +12,7 @@ import {
 import { useRouter } from "next/navigation";
 import type { Tab } from "@/lib/contract";
 import { isArenaLive, isMockEnabled } from "@/lib/flags";
+import type { ClientTiming } from "@/lib/latency";
 import type { LogDraft } from "@/lib/interpret";
 import { MOCK_SCENARIOS, type MockScenario } from "@/lib/mock-api";
 import { loginPathForTab } from "@/lib/return-to";
@@ -19,6 +20,8 @@ import { loginPathForTab } from "@/lib/return-to";
 export type LogEntry = LogDraft & {
   localId: string;
   at: string;
+  totalMs: number | null;
+  modelMs: number | null;
 };
 
 type Cooldown = {
@@ -33,7 +36,7 @@ type DemoContextValue = {
   scenario: MockScenario;
   setScenario: (scenario: MockScenario) => void;
   entries: readonly LogEntry[];
-  addLog: (draft: LogDraft) => void;
+  addLog: (draft: LogDraft, timing: ClientTiming) => void;
   clearLog: () => void;
   clearSession: () => void;
   lock: (tab: Tab) => void;
@@ -81,11 +84,13 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     [clearSession, router],
   );
 
-  const addLog = useCallback((draft: LogDraft) => {
+  const addLog = useCallback((draft: LogDraft, timing: ClientTiming) => {
     setEntries((current) =>
       [
         {
           ...draft,
+          totalMs: timing.totalMs,
+          modelMs: timing.modelMs,
           localId: crypto.randomUUID(),
           at: new Date().toISOString(),
         },

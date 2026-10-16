@@ -5,6 +5,7 @@ import { LIMITS, type ArenaHistoryEntry, type ArenaRoundResponse } from "@/lib/c
 import { submitArenaRound } from "@/lib/api-client";
 import { arenaFixtures, blockRate, capHistory } from "@/lib/arena-session";
 import { interpretDecide, toLogDraft, type ViewModel } from "@/lib/interpret";
+import { roundTripMs } from "@/lib/latency";
 import { useDemo } from "@/components/demo-context";
 import { OutcomeView } from "@/components/OutcomeView";
 import { ArenaJudgeForm } from "@/components/panels";
@@ -39,8 +40,10 @@ export function ArenaPanel() {
   function runRound() {
     if (isPending || demo.cooling || full) return;
     const snapshot = capHistory(history);
+    const started = performance.now();
     startTransition(async () => {
       const result = await submitArenaRound(snapshot, demo.scenario);
+      const timing = { totalMs: roundTripMs(started), modelMs: result.modelMs ?? null };
       if (!result.ok) {
         const view = interpretDecide("arena", result);
         if (view.kind === "auth") {
@@ -51,7 +54,7 @@ export function ArenaPanel() {
           demo.startCooldown(view.retryAfterMs, view.message, view.requestId);
         }
         setFailure(view);
-        demo.addLog(toLogDraft("arena", view));
+        demo.addLog(toLogDraft("arena", view), timing);
         return;
       }
       const view = interpretDecide("arena", { ok: true, data: result.data.verdict });
@@ -76,7 +79,7 @@ export function ArenaPanel() {
           { prompt: result.data.attack.prompt, verdict: result.data.verdict },
         ]),
       );
-      demo.addLog(toLogDraft("arena", view));
+      demo.addLog(toLogDraft("arena", view), timing);
     });
   }
 

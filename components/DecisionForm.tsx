@@ -6,6 +6,7 @@ import { tabPolicy } from "@/lib/contract";
 import { submitDecide } from "@/lib/api-client";
 import type { ParseResult } from "@/lib/forms";
 import { interpretDecide, toLogDraft, type ViewModel } from "@/lib/interpret";
+import { roundTripMs } from "@/lib/latency";
 import type { Preset } from "@/lib/presets";
 import { useDemo } from "@/components/demo-context";
 import { Field } from "@/components/Field";
@@ -66,8 +67,10 @@ export function DecisionForm({
     const request = parsed.input;
     const seq = requestSeq.current + 1;
     requestSeq.current = seq;
+    const started = performance.now();
     startTransition(async () => {
       const result = await submitDecide(request, demo.scenario);
+      const totalMs = roundTripMs(started);
       if (seq !== requestSeq.current) return;
       const view = interpretDecide(tab, result);
       if (view.kind === "auth") {
@@ -78,7 +81,7 @@ export function DecisionForm({
         demo.startCooldown(view.retryAfterMs, view.message, view.requestId);
       }
       setModel(view);
-      demo.addLog(toLogDraft(tab, view));
+      demo.addLog(toLogDraft(tab, view), { totalMs, modelMs: result.modelMs ?? null });
     });
   }
 
