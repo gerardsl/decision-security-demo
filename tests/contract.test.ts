@@ -68,6 +68,50 @@ describe("contract schemas", () => {
     ).toBe(true);
   });
 
+  it("keeps modelMs at or under total latency and accepts null", () => {
+    const timed = verdict({ latencyMs: 40, modelMs: 25, modelStatus: "ok" });
+    expect(decideResponseSchema.safeParse(timed).success).toBe(true);
+    expect(timed.modelMs).toEqual(expect.any(Number));
+    expect(timed.modelMs).toBeLessThanOrEqual(timed.latencyMs);
+    expect(
+      decideResponseSchema.safeParse(
+        verdict({
+          outcome: "undecided",
+          reason: "timeout",
+          confidence: 0,
+          latencyMs: 8_000,
+          modelMs: 8_000,
+          modelStatus: "timeout",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      decideResponseSchema.safeParse(
+        verdict({
+          outcome: "block",
+          reason: "upstream_error",
+          confidence: 0,
+          latencyMs: 12,
+          modelMs: 9,
+          modelStatus: "error",
+        }),
+      ).success,
+    ).toBe(true);
+    const absent = verdict({
+      outcome: "block",
+      reason: "invalid_tool_name",
+      confidence: 0,
+      latencyMs: 4,
+      modelMs: null,
+      modelStatus: null,
+    });
+    expect(decideResponseSchema.safeParse(absent).success).toBe(true);
+    expect(absent.modelMs).toBeNull();
+    expect(decideResponseSchema.safeParse(verdict({ modelMs: 1.5 })).success).toBe(false);
+    expect(decideResponseSchema.safeParse(verdict({ modelStatus: "late" as never })).success).toBe(false);
+    expect(decideResponseSchema.safeParse({ ...verdict(), modelMs: undefined }).success).toBe(false);
+  });
+
   it("requires retryAfterMs on rate-limit errors", () => {
     const requestId = crypto.randomUUID();
     expect(

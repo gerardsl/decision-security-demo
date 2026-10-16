@@ -149,6 +149,45 @@ describe("mock API", () => {
     }
   });
 
+  test("reports a simulated model duration at or under total latency", () => {
+    const request = requestsFor("phishing")[0];
+    if (!request) throw new Error("preset");
+    const statuses = {
+      nominal: "ok",
+      lowconf: "ok",
+      timeout: "timeout",
+      upstream: "error",
+      invalid_option: "ok",
+    } as const;
+    for (const scenario of ["nominal", "lowconf", "timeout", "upstream", "invalid_option"] as const) {
+      const result = mockDecideSync(request, scenario);
+      const raw = result.ok ? result.data : result.fault.kind === "http" ? result.fault.body : null;
+      const body = decideResponseSchema.parse(raw);
+      expect(body.modelMs).toEqual(expect.any(Number));
+      expect(Number.isInteger(body.modelMs)).toBe(true);
+      expect(body.modelMs).toBeLessThanOrEqual(body.latencyMs);
+      expect(body.modelStatus).toBe(statuses[scenario]);
+    }
+  });
+
+  test("stays valid when model timing is null", () => {
+    const request = requestsFor("soc")[0];
+    if (!request) throw new Error("preset");
+    const result = mockDecideSync(request, "nominal");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.modelMs).not.toBeNull();
+    const cleared = decideResponseSchema.safeParse({
+      ...result.data,
+      modelMs: null,
+      modelStatus: null,
+    });
+    expect(cleared.success).toBe(true);
+    if (!cleared.success) return;
+    expect(cleared.data.modelMs).toBeNull();
+    expect(cleared.data.modelStatus).toBeNull();
+  });
+
   test("lists a mock scenario for every status case", () => {
     expect(MOCK_SCENARIOS).toEqual(
       expect.arrayContaining([

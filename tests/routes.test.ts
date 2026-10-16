@@ -4,6 +4,8 @@ import { POST as arenaRoute } from "@/app/api/arena/round/route";
 import { POST as passcodeRoute } from "@/app/api/auth/passcode/route";
 import { apiErrorSchema, decideResponseSchema } from "@/lib/contract";
 import { LIMITS } from "@/lib/contract";
+import { timedModelBody } from "@/lib/model-timing";
+import { DecisionCallError } from "@/lib/upstream";
 import { AZURE_CLIENT_SECRET, DEMO_PASSCODE, authHeaders, postJson } from "@/tests/helpers";
 
 const { callDecision } = vi.hoisted(() => ({ callDecision: vi.fn() }));
@@ -11,10 +13,12 @@ const { callDecision } = vi.hoisted(() => ({ callDecision: vi.fn() }));
 vi.mock("@/lib/upstream", () => {
   class DecisionCallError extends Error {
     readonly reason: "timeout" | "upstream";
-    constructor(reason: "timeout" | "upstream") {
+    readonly modelMs: number | null;
+    constructor(reason: "timeout" | "upstream", modelMs: number | null = null) {
       super(reason);
       this.name = "DecisionCallError";
       this.reason = reason;
+      this.modelMs = modelMs;
     }
   }
   return {
@@ -37,12 +41,14 @@ describe("API routes", () => {
       })),
     );
     expect(missing.status).toBe(401);
+    expect(missing.headers.get("server-timing")).toBeNull();
     expect(apiErrorSchema.safeParse(await missing.json()).success).toBe(true);
 
     const invalid = await decideRoute(
       postJson("http://localhost/api/decide", { tab: "phishing", input: { sender: "" } }, authHeaders("203.0.113.41")),
     );
     expect(invalid.status).toBe(400);
+    expect(invalid.headers.get("server-timing")).toBeNull();
     const invalidBody = await invalid.json();
     expect(invalidBody).toMatchObject({ error: { code: "bad_request" } });
     expect(apiErrorSchema.safeParse(invalidBody).success).toBe(true);
@@ -58,7 +64,13 @@ describe("API routes", () => {
     expect(malformed.status).toBe(502);
     const malformedText = await malformed.text();
     expect(malformedText).not.toContain(AZURE_CLIENT_SECRET);
-    expect(JSON.parse(malformedText)).toMatchObject({ outcome: "undecided", reason: "upstream_error" });
+    expect(JSON.parse(malformedText)).toMatchObject({
+      outcome: "undecided",
+      reason: "upstream_error",
+      modelMs: null,
+      modelStatus: "error",
+    });
+    expect(malformed.headers.get("server-timing")).toBe("model;dur=0");
     expect(decideResponseSchema.safeParse(JSON.parse(malformedText)).success).toBe(true);
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -107,6 +119,8 @@ describe("API routes", () => {
     expect(decideResponseSchema.safeParse(JSON.parse(text)).success).toBe(true);
     expect(text).not.toContain(AZURE_CLIENT_SECRET);
     expect(text).not.toContain(marker);
+    expect(JSON.parse(text)).toMatchObject({ modelMs: null, modelStatus: null });
+    expect(response.headers.get("server-timing")).toBe("model;dur=0");
     expect(logs.join("\n")).not.toContain(AZURE_CLIENT_SECRET);
     expect(logs.join("\n")).not.toContain(marker);
     expect(logs.join("\n")).not.toContain(process.env.SESSION_SECRET);
@@ -179,7 +193,13 @@ describe("API routes", () => {
     const blockedBody = await blocked.json();
     expect(blocked.status).toBe(502);
     expect(decideResponseSchema.safeParse(blockedBody).success).toBe(true);
-    expect(blockedBody).toMatchObject({ outcome: "block", reason: "timeout" });
+    expect(blockedBody).toMatchObject({
+      outcome: "block",
+      reason: "timeout",
+      modelMs: null,
+      modelStatus: "timeout",
+    });
+    expect(blocked.headers.get("server-timing")).toBe("model;dur=0");
     expect(callDecision).not.toHaveBeenCalled();
 
     delete process.env.DEMO_FAULT_INJECTION;
@@ -303,8 +323,104 @@ describe("API routes", () => {
     const body = await response.json();
     expect(body.round).toBe(1);
     expect(body.attack.prompt.length).toBeGreaterThan(0);
-    expect(body.verdict).toMatchObject({ outcome: "allow", reason: "ok" });
+    expect(body.verdict).toMatchObject({ outcome: "allow", reason: "ok", modelMs: null, modelStatus: null });
+    expect(response.headers.get("server-timing")).toBe("model;dur=0");
     const judged = callDecision.mock.calls[0]?.[0] as { questions: { verdict: { instructions: string } } };
     expect(judged.questions.verdict.instructions).not.toContain(body.attack.prompt);
+  });
+
+  it("returns modelMs at or under latencyMs and always sends Server-Timing", async () => {
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    callDecision.mockImplementation(async () => {
+      const started = performance.now();
+      await delay(40);
+      return timedModelBody(
+        { answers: { verdict: { type: "noul", noul: 0.92 } } },
+        Math.floor(performance.now() - started),
+      );
+    });
+    const response = await decideRoute(
+      postJson(
+        "http://localhost/api/decide",
+        { tab: "phishing", input: { sender: "a@b.co", subject: "Hi", body: "Hello" } },
+        authHeaders("203.0.113.80"),
+      ),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(decideResponseSchema.safeParse(body).success).toBe(true);
+    expect(body.modelStatus).toBe("ok");
+    expect(Number.isInteger(body.modelMs)).toBe(true);
+    expect(body.modelMs).toBeGreaterThan(0);
+    expect(body.modelMs).toBeLessThanOrEqual(body.latencyMs);
+    expect(response.headers.get("server-timing")).toBe(`model;dur=${body.modelMs}`);
+
+    callDecision.mockImplementation(async () => {
+      const started = performance.now();
+      await delay(30);
+      throw new DecisionCallError("timeout", Math.floor(performance.now() - started));
+    });
+    const timedOut = await decideRoute(
+      postJson(
+        "http://localhost/api/decide",
+        { tab: "phishing", input: { sender: "a@b.co", subject: "Hi", body: "Hello" } },
+        authHeaders("203.0.113.81"),
+      ),
+    );
+    const timedOutBody = await timedOut.json();
+    expect(timedOut.status).toBe(502);
+    expect(timedOutBody).toMatchObject({ outcome: "undecided", reason: "timeout", modelStatus: "timeout" });
+    expect(timedOutBody.modelMs).toBeLessThanOrEqual(timedOutBody.latencyMs);
+    expect(timedOut.headers.get("server-timing")).toBe(`model;dur=${timedOutBody.modelMs}`);
+
+    const closed = await decideRoute(
+      postJson(
+        "http://localhost/api/decide",
+        { tab: "mcp", input: { toolName: "search_docs", args: {}, agentContext: "demo" } },
+        authHeaders("203.0.113.82"),
+      ),
+    );
+    const closedBody = await closed.json();
+    expect(closed.status).toBe(502);
+    expect(closedBody).toMatchObject({ outcome: "block", reason: "timeout", modelStatus: "timeout" });
+    expect(closedBody.modelMs).toBeLessThanOrEqual(closedBody.latencyMs);
+    expect(closed.headers.get("server-timing")).toBe(`model;dur=${closedBody.modelMs}`);
+
+    callDecision.mockRejectedValue(new DecisionCallError("upstream", 0));
+    const errored = await decideRoute(
+      postJson(
+        "http://localhost/api/decide",
+        { tab: "dlp", input: { prompt: "customer list" } },
+        authHeaders("203.0.113.83"),
+      ),
+    );
+    const erroredBody = await errored.json();
+    expect(errored.status).toBe(502);
+    expect(erroredBody).toMatchObject({
+      outcome: "block",
+      reason: "upstream_error",
+      modelMs: 0,
+      modelStatus: "error",
+    });
+    expect(errored.headers.get("server-timing")).toBe("model;dur=0");
+
+    callDecision.mockClear();
+    const local = await decideRoute(
+      postJson(
+        "http://localhost/api/decide",
+        { tab: "mcp", input: { toolName: "bad name", args: {}, agentContext: "demo" } },
+        authHeaders("203.0.113.84"),
+      ),
+    );
+    const localBody = await local.json();
+    expect(local.status).toBe(200);
+    expect(localBody).toMatchObject({
+      outcome: "block",
+      reason: "invalid_tool_name",
+      modelMs: null,
+      modelStatus: null,
+    });
+    expect(local.headers.get("server-timing")).toBe("model;dur=0");
+    expect(callDecision).not.toHaveBeenCalled();
   });
 });

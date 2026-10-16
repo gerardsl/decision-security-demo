@@ -6,6 +6,7 @@ import {
   tabPolicy,
   type Decision,
   type DecisionReason,
+  type ModelStatus,
   type Outcome,
   type Tab,
 } from "@/lib/contract";
@@ -17,6 +18,9 @@ export type SettledDecision = {
   outcome: Outcome;
   reason: DecisionReason;
   httpStatus: 200 | 502;
+  /** Null until `decide` records a fetch. Policy itself does not time the model. */
+  modelMs: number | null;
+  modelStatus: ModelStatus | null;
 };
 
 export function failureDecision(tab: Tab, reason: DecisionReason): SettledDecision {
@@ -27,6 +31,8 @@ export function failureDecision(tab: Tab, reason: DecisionReason): SettledDecisi
     outcome: closed ? "block" : "undecided",
     reason,
     httpStatus: reason === "timeout" || reason === "upstream_error" || reason === "invalid_option" ? 502 : 200,
+    modelMs: null,
+    modelStatus: null,
   };
 }
 
@@ -38,6 +44,8 @@ export function applyPolicy(tab: Tab, judgment: ModelJudgment): SettledDecision 
       outcome: tabPolicy[tab].failMode === "closed" ? "block" : "undecided",
       reason: "low_confidence",
       httpStatus: 200,
+      modelMs: null,
+      modelStatus: null,
     };
   }
   if (tabPolicy[tab].failMode === "closed" && !isAllowAnswer(tab, judgment.decision)) {
@@ -47,6 +55,8 @@ export function applyPolicy(tab: Tab, judgment: ModelJudgment): SettledDecision 
       outcome: "block",
       reason: tab === "dlp" ? "score_threshold" : "policy_unsafe",
       httpStatus: 200,
+      modelMs: null,
+      modelStatus: null,
     };
   }
   return {
@@ -55,6 +65,8 @@ export function applyPolicy(tab: Tab, judgment: ModelJudgment): SettledDecision 
     outcome: "allow",
     reason: "ok",
     httpStatus: 200,
+    modelMs: null,
+    modelStatus: null,
   };
 }
 

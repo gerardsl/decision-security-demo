@@ -209,6 +209,14 @@ export const decisionSchema = z.discriminatedUnion("type", [
 ]);
 
 export const outcomeSchema = z.enum(["allow", "block", "undecided"]);
+
+/**
+ * Transport outcome of the upstream Decision-1 fetch.
+ * `ok` means the response body was fully read. `timeout` and `error` are call
+ * failures. Null means the server never attempted that fetch.
+ */
+export const modelStatusSchema = z.enum(["ok", "error", "timeout"]);
+
 export const decisionReasonSchema = z.enum([
   "policy_unsafe",
   "low_confidence",
@@ -227,7 +235,22 @@ export const decideResponseSchema = z
     rationale: z.string().max(LIMITS.rationale).optional(),
     outcome: outcomeSchema,
     reason: decisionReasonSchema,
+    /** Handler total, from the start of the route. Unchanged by model timing. */
     latencyMs: z.number().nonnegative(),
+    /**
+     * Integer milliseconds for the upstream Decision-1 fetch only: from just
+     * before `fetch` until the response body is fully read. Excludes token
+     * acquisition, input validation, and rate-limit checks. On timeout or
+     * transport failure this is the time until that failure. Null when the
+     * fetch timer never started.
+     *
+     * Mock mode (`lib/mock-api.ts`) reports a simulated duration that is an
+     * integer less than or equal to `latencyMs`, not null. Null stays valid
+     * so a response that never called the model still parses.
+     */
+    modelMs: z.number().int().nonnegative().nullable(),
+    /** See `modelStatusSchema`. Null when no Decision-1 fetch was attempted. */
+    modelStatus: modelStatusSchema.nullable(),
     requestId: z.string().uuid(),
   })
   .strict()
@@ -348,6 +371,7 @@ export type ChoiceDecision = z.infer<typeof choiceDecisionSchema>;
 export type ScoreDecision = z.infer<typeof scoreDecisionSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
 export type Outcome = z.infer<typeof outcomeSchema>;
+export type ModelStatus = z.infer<typeof modelStatusSchema>;
 export type DecisionReason = z.infer<typeof decisionReasonSchema>;
 export type DecideResponse = z.infer<typeof decideResponseSchema>;
 export type ErrorCode = z.infer<typeof errorCodeSchema>;

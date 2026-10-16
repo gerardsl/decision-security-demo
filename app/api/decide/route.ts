@@ -5,6 +5,7 @@ import { decide } from "@/lib/decide";
 import { readDemoFault } from "@/lib/faults";
 import { ApiError, jsonError, readJsonBody } from "@/lib/http";
 import { logDecision } from "@/lib/log";
+import { modelServerTiming } from "@/lib/model-timing";
 import { enforceRateLimit } from "@/lib/ratelimit";
 
 export async function POST(request: Request): Promise<Response> {
@@ -24,6 +25,8 @@ export async function POST(request: Request): Promise<Response> {
       outcome: settled.outcome,
       reason: settled.reason,
       latencyMs: Date.now() - started,
+      modelMs: settled.modelMs,
+      modelStatus: settled.modelStatus,
       requestId,
     };
     const checked = decideResponseSchema.safeParse(response);
@@ -36,7 +39,10 @@ export async function POST(request: Request): Promise<Response> {
       reason: checked.data.reason,
       decision: checked.data.decision.type,
     });
-    return Response.json(checked.data, { status: settled.httpStatus });
+    return Response.json(checked.data, {
+      status: settled.httpStatus,
+      headers: { "Server-Timing": modelServerTiming(checked.data.modelMs) },
+    });
   } catch (error) {
     const apiError = error instanceof ApiError ? error : new ApiError("upstream", "Upstream decision failed.");
     logDecision({
