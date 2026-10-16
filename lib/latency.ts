@@ -1,18 +1,26 @@
 /**
  * Request-log timings measured in the browser.
  *
- * Total is the click-to-parsed-response round trip. Model time is copied from
- * the decide payload: `modelMs` when that field is a usable number, otherwise
- * `modelLatencyMs`. Missing or null model time stays null so the table can
- * show "unavailable" instead of 0.
+ * Total is the click-to-parsed-response round trip. Model time comes only from
+ * the top-level `modelMs` field, and only when `modelStatus` is "ok".
+ * A null `modelMs` stays null. The model cell is capped at Total, and a
+ * console warning records both numbers when the raw model time is larger.
  */
 
 export type ClientTiming = {
   totalMs: number | null;
   modelMs: number | null;
+  modelStatus: string | null;
+};
+
+export type ModelTiming = {
+  modelMs: number | null;
+  modelStatus: string | null;
 };
 
 const numberFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+
+const EMPTY_TIMING: ModelTiming = { modelMs: null, modelStatus: null };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -24,41 +32,26 @@ export function finiteLatencyMs(value: unknown): number | null {
   return value;
 }
 
-function timingSource(body: unknown): Record<string, unknown> | null {
-  if (!isRecord(body)) return null;
-  if ("modelMs" in body || "modelLatencyMs" in body) return body;
-  if (isRecord(body.verdict)) return body.verdict;
-  return null;
+/** Top-level decide fields only. Nested verdict timing is ignored. */
+export function readModelTiming(body: unknown): ModelTiming {
+  if (!isRecord(body)) return EMPTY_TIMING;
+  const modelStatus = typeof body.modelStatus === "string" ? body.modelStatus : null;
+  const modelMs = Object.hasOwn(body, "modelMs") ? finiteLatencyMs(body.modelMs) : null;
+  return { modelMs, modelStatus };
 }
 
-/**
- * Prefer `modelMs`. Fall back to `modelLatencyMs` when the preferred field
- * is missing, null, or not a usable number. Arena payloads nest the decide
- * body on `verdict`.
- */
-export function readModelLatencyMs(body: unknown): number | null {
-  const record = timingSource(body);
-  if (!record) return null;
-  if ("modelMs" in record) {
-    const preferred = finiteLatencyMs(record.modelMs);
-    if (preferred !== null) return preferred;
-  }
-  if ("modelLatencyMs" in record) return finiteLatencyMs(record.modelLatencyMs);
-  return null;
+function omitTimingKeys(record: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...record };
+  delete next.modelMs;
+  delete next.modelStatus;
+  return next;
 }
 
 /** Drop timing fields so the strict decide schema still accepts the rest of the body. */
 export function stripModelTimingFields(body: unknown): unknown {
   if (!isRecord(body)) return body;
-  const next: Record<string, unknown> = { ...body };
-  delete next.modelMs;
-  delete next.modelLatencyMs;
-  if (isRecord(next.verdict)) {
-    const verdict: Record<string, unknown> = { ...next.verdict };
-    delete verdict.modelMs;
-    delete verdict.modelLatencyMs;
-    next.verdict = verdict;
-  }
+  const next = omitTimingKeys(body);
+  if (isRecord(next.verdict)) next.verdict = omitTimingKeys(next.verdict);
   return next;
 }
 
@@ -69,20 +62,34 @@ export function roundTripMs(startedAt: number, finishedAt = performance.now()): 
   return elapsed;
 }
 
-/**
- * Model time shown in the table. Never larger than Total when both are known.
- * Null stays null so the cell reads "unavailable".
- */
-export function presentedModelMs(modelMs: number | null, totalMs: number | null): number | null {
-  const model = finiteLatencyMs(modelMs);
-  if (model === null) return null;
-  const total = finiteLatencyMs(totalMs);
-  if (total !== null && model > total) return total;
-  return model;
-}
-
 export function formatLatencyCell(value: number | null): string {
   const timing = finiteLatencyMs(value);
   if (timing === null) return "unavailable";
   return `${numberFormat.format(timing)} ms`;
+}
+
+/**
+ * Model column text. A number is shown only for status "ok" and a finite
+ * modelMs >= 0. That number is never presented as larger than Total; the
+ * raw pair is written to the console when the cap applies.
+ */
+export function formatModelCell(
+  modelMs: number | null,
+  modelStatus: string | null,
+  totalMs: number | null,
+): string {
+  if (modelStatus === "error" || modelStatus === "timeout") {
+    return `unavailable (${modelStatus})`;
+  }
+  if (modelStatus !== "ok") return "unavailable";
+  const model = finiteLatencyMs(modelMs);
+  if (model === null) return "unavailable";
+  const total = finiteLatencyMs(totalMs);
+  if (total !== null && model > total) {
+    console.warn(
+      `Decision-1 model latency ${model} ms exceeds total round trip ${total} ms. Showing ${total} ms.`,
+    );
+    return formatLatencyCell(total);
+  }
+  return formatLatencyCell(model);
 }

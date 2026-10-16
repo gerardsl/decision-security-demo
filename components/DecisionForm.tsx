@@ -81,7 +81,11 @@ export function DecisionForm({
         demo.startCooldown(view.retryAfterMs, view.message, view.requestId);
       }
       setModel(view);
-      demo.addLog(toLogDraft(tab, view), { totalMs, modelMs: result.modelMs ?? null });
+      demo.addLog(toLogDraft(tab, view), {
+        totalMs,
+        modelMs: result.modelMs ?? null,
+        modelStatus: result.modelStatus ?? null,
+      });
     });
   }
 

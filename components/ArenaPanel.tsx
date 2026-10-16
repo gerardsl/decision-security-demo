@@ -43,7 +43,11 @@ export function ArenaPanel() {
     const started = performance.now();
     startTransition(async () => {
       const result = await submitArenaRound(snapshot, demo.scenario);
-      const timing = { totalMs: roundTripMs(started), modelMs: result.modelMs ?? null };
+      const timing = {
+        totalMs: roundTripMs(started),
+        modelMs: result.modelMs ?? null,
+        modelStatus: result.modelStatus ?? null,
+      };
       if (!result.ok) {
         const view = interpretDecide("arena", result);
         if (view.kind === "auth") {

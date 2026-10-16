@@ -22,6 +22,7 @@ export type LogEntry = LogDraft & {
   at: string;
   totalMs: number | null;
   modelMs: number | null;
+  modelStatus: string | null;
 };
 
 type Cooldown = {
@@ -91,6 +92,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
           ...draft,
           totalMs: timing.totalMs,
           modelMs: timing.modelMs,
+          modelStatus: timing.modelStatus,
           localId: crypto.randomUUID(),
           at: new Date().toISOString(),
         },

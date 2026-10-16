@@ -23,19 +23,16 @@ vi.mock("@/lib/api-client", () => ({
 
 const REQUEST_ID = "33333333-3333-4333-8333-333333333333";
 
-function decision(modelMs?: number | null): DecideResponse & { modelMs?: number | null } {
-  return {
-    ...decideResponseSchema.parse({
-      decision: { type: "yesno", value: true },
-      confidence: 0.91,
-      rationale: "Synthetic.",
-      outcome: "allow",
-      reason: "ok",
-      latencyMs: 12,
-      requestId: REQUEST_ID,
-    }),
-    modelMs,
-  };
+function decision(): DecideResponse {
+  return decideResponseSchema.parse({
+    decision: { type: "yesno", value: true },
+    confidence: 0.91,
+    rationale: "Synthetic.",
+    outcome: "allow",
+    reason: "ok",
+    latencyMs: 12,
+    requestId: REQUEST_ID,
+  });
 }
 
 function installClock(deltaMs: number) {
@@ -70,11 +67,12 @@ describe("latency table", () => {
     vi.restoreAllMocks();
   });
 
-  test("shows browser total and Decision-1 model time, capped by total", async () => {
+  test("shows browser total and caps Decision-1 model time, warning with both values", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const clock = installClock(180);
     submitDecide.mockImplementation(async () => {
       clock.finish();
-      return { ok: true, data: decision(), modelMs: 42 };
+      return { ok: true, data: decision(), modelMs: 42, modelStatus: "ok" };
     });
 
     renderLog();
@@ -86,12 +84,12 @@ describe("latency table", () => {
     expect(log().getByRole("columnheader", { name: "Total" })).toBeTruthy();
     expect(log().getByRole("columnheader", { name: "Model (Decision-1)" })).toBeTruthy();
     expect(log().getByTestId("latency-model").textContent).toBe("42 ms");
-    expect(log().getByTestId("latency-model").textContent).not.toBe("0 ms");
+    expect(warn).not.toHaveBeenCalled();
 
     clock.reset();
     submitDecide.mockImplementation(async () => {
       clock.finish();
-      return { ok: true, data: decision(), modelMs: 9_000 };
+      return { ok: true, data: decision(), modelMs: 9_000, modelStatus: "ok" };
     });
     fireEvent.click(screen.getByTestId("submit-decision"));
 
@@ -105,13 +103,17 @@ describe("latency table", () => {
     expect(latestModel?.textContent).not.toContain("9,000");
     expect(latestModel?.textContent).not.toContain("9000");
     expect(earlierModel?.textContent).toBe("42 ms");
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain("9000");
+    expect(message).toContain("180");
   });
 
-  test("shows unavailable when model time is null or missing, never 0", async () => {
+  test("shows unavailable for null model time and for a non-ok status that still includes a number", async () => {
     const clock = installClock(95);
     submitDecide.mockImplementation(async () => {
       clock.finish();
-      return { ok: true, data: decision(), modelMs: null };
+      return { ok: true, data: decision(), modelMs: null, modelStatus: "ok" };
     });
 
     renderLog();
@@ -126,17 +128,30 @@ describe("latency table", () => {
     clock.reset();
     submitDecide.mockImplementation(async () => {
       clock.finish();
-      return { ok: true, data: decision() };
+      return { ok: true, data: decision(), modelMs: 50, modelStatus: "timeout" };
     });
     fireEvent.click(screen.getByTestId("submit-decision"));
 
     await waitFor(() => {
-      expect(log().getAllByTestId("latency-model")).toHaveLength(2);
+      expect(log().getAllByTestId("latency-model")[0]?.textContent).toBe("unavailable (timeout)");
     });
+
+    clock.reset();
+    submitDecide.mockImplementation(async () => {
+      clock.finish();
+      return { ok: true, data: decision(), modelMs: 50, modelStatus: "error" };
+    });
+    fireEvent.click(screen.getByTestId("submit-decision"));
+
+    await waitFor(() => {
+      expect(log().getAllByTestId("latency-model")[0]?.textContent).toBe("unavailable (error)");
+    });
+
     for (const cell of log().getAllByTestId("latency-model")) {
-      expect(cell.textContent).toBe("unavailable");
+      expect(cell.textContent?.startsWith("unavailable")).toBe(true);
       expect(cell.textContent).not.toBe("0");
       expect(cell.textContent).not.toBe("0 ms");
+      expect(cell.textContent).not.toContain("50");
     }
   });
 });

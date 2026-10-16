@@ -1,19 +1,18 @@
 "use client";
 
 import { useDemo } from "@/components/demo-context";
-import { formatLatencyCell, presentedModelMs } from "@/lib/latency";
+import { formatLatencyCell, formatModelCell } from "@/lib/latency";
 
 function formatConfidence(value: number | null): string {
   if (value === null) return "—";
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
 
-function LatencyCell({ value, testId }: { value: number | null; testId: string }) {
-  const text = formatLatencyCell(value);
+function TimingCell({ text, testId }: { text: string; testId: string }) {
   return (
     <td
       data-testid={testId}
-      className={`py-2 pr-3 font-mono ${text === "unavailable" ? "text-muted" : "text-body"}`}
+      className={`py-2 pr-3 font-mono ${text.startsWith("unavailable") ? "text-muted" : "text-body"}`}
     >
       {text}
     </td>
@@ -31,7 +30,7 @@ export function RequestLog() {
           <p className="mt-2 text-sm leading-6 text-muted">
             This list stays in memory for the current visit. It records the tab, decision,
             confidence, request ID, and two timings. Total is the browser round trip. Model
-            (Decision-1) is only the model call, when the service reports it.
+            (Decision-1) is the model call when its status is ok.
           </p>
         </div>
         <button type="button" onClick={demo.clearLog} className="btn-outline shrink-0">
@@ -76,9 +75,9 @@ export function RequestLog() {
                   <td className="py-2 pr-3 font-mono text-body">
                     {formatConfidence(entry.confidence)}
                   </td>
-                  <LatencyCell value={entry.totalMs} testId="latency-total" />
-                  <LatencyCell
-                    value={presentedModelMs(entry.modelMs, entry.totalMs)}
+                  <TimingCell text={formatLatencyCell(entry.totalMs)} testId="latency-total" />
+                  <TimingCell
+                    text={formatModelCell(entry.modelMs, entry.modelStatus, entry.totalMs)}
                     testId="latency-model"
                   />
                   <td className="py-2 font-mono text-xs break-all text-muted">
