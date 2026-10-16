@@ -16,7 +16,7 @@ import { ARENA_ROUND_PATH, CLIENT_TIMEOUT_MS, DECIDE_PATH, PASSCODE_PATH } from 
 import { isArenaLive, isMockEnabled } from "@/lib/flags";
 import { arenaRoundBody, fixtureForRound } from "@/lib/arena-session";
 import { mockArenaRound, mockDecide, mockPasscode, type MockScenario } from "@/lib/mock-api";
-import { readModelTiming, stripModelTimingFields, type ModelTiming } from "@/lib/latency";
+import { readModelTiming, type ModelTiming } from "@/lib/latency";
 import type { TransportResult } from "@/lib/transport";
 
 type Schema<T> = {
@@ -56,11 +56,10 @@ async function postJson<T>(path: string, body: unknown, schema: Schema<T>): Prom
       }
     }
     const timing = readModelTiming(json);
-    const payload = stripModelTimingFields(json);
     if (!response.ok) {
-      return { ok: false, fault: { kind: "http", status: response.status, body: payload }, ...timing };
+      return { ok: false, fault: { kind: "http", status: response.status, body: json }, ...timing };
     }
-    const parsed = schema.safeParse(payload);
+    const parsed = schema.safeParse(json);
     if (!parsed.success) return invalidResponse(timing);
     return { ok: true, data: parsed.data, ...timing };
   } catch (error) {

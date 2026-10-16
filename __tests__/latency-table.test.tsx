@@ -31,6 +31,8 @@ function decision(): DecideResponse {
     outcome: "allow",
     reason: "ok",
     latencyMs: 12,
+    modelMs: null,
+    modelStatus: null,
     requestId: REQUEST_ID,
   });
 }
@@ -111,7 +113,7 @@ describe("latency table", () => {
     const clock = installClock(95);
     submitDecide.mockImplementation(async () => {
       clock.finish();
-      return { ok: true, data: decision(), modelMs: null, modelStatus: "ok" };
+      return { ok: true, data: decision(), modelMs: null, modelStatus: null };
     });
 
     renderLog();

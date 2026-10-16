@@ -41,21 +41,6 @@ export function readModelTiming(body: unknown): ModelTiming {
   return { modelMs, modelStatus };
 }
 
-function omitTimingKeys(record: Record<string, unknown>): Record<string, unknown> {
-  const next: Record<string, unknown> = { ...record };
-  delete next.modelMs;
-  delete next.modelStatus;
-  return next;
-}
-
-/** Drop timing fields so the strict decide schema still accepts the rest of the body. */
-export function stripModelTimingFields(body: unknown): unknown {
-  if (!isRecord(body)) return body;
-  const next = omitTimingKeys(body);
-  if (isRecord(next.verdict)) next.verdict = omitTimingKeys(next.verdict);
-  return next;
-}
-
 /** Elapsed time from a `performance.now()` mark taken at the click. */
 export function roundTripMs(startedAt: number, finishedAt = performance.now()): number {
   const elapsed = finishedAt - startedAt;

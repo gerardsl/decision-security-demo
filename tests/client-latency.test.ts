@@ -4,13 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { arenaRoundResponseSchema, decideResponseSchema } from "@/lib/contract";
 import { submitDecide } from "@/lib/api-client";
 import { interpretDecide } from "@/lib/interpret";
-import {
-  formatLatencyCell,
-  formatModelCell,
-  readModelTiming,
-  roundTripMs,
-  stripModelTimingFields,
-} from "@/lib/latency";
+import { formatLatencyCell, formatModelCell, readModelTiming, roundTripMs } from "@/lib/latency";
 import { verdict } from "@/tests/helpers";
 
 const fetchMock = vi.fn();
@@ -78,8 +72,18 @@ describe("client model latency", () => {
     expect(formatModelCell(null, "ok", 180)).toBe("unavailable");
     expect(formatModelCell(null, null, 180)).toBe("unavailable");
     expect(formatLatencyCell(null)).toBe("unavailable");
-    expect(formatModelCell(null, "ok", 180)).not.toBe("0 ms");
-    expect(formatModelCell(null, "ok", 180)).not.toContain("0");
+    expect(formatModelCell(null, null, 180)).not.toBe("0 ms");
+    expect(formatModelCell(null, null, 180)).not.toContain("0");
+  });
+
+  it("shows unavailable when no model fetch was attempted", () => {
+    expect(readModelTiming({ modelMs: null, modelStatus: null })).toEqual({
+      modelMs: null,
+      modelStatus: null,
+    });
+    expect(formatModelCell(null, null, 210)).toBe("unavailable");
+    expect(formatModelCell(null, null, 210)).not.toBe("0");
+    expect(formatModelCell(null, null, 210)).not.toBe("0 ms");
   });
 
   it("shows unavailable when status is not ok even if a number is returned", () => {
@@ -120,10 +124,9 @@ describe("client model latency", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("keeps the strict decide schema and returns model timing from /api/decide", async () => {
-    const body = { ...verdict(), modelMs: 40, modelStatus: "ok" };
-    expect(decideResponseSchema.safeParse(body).success).toBe(false);
-    expect(decideResponseSchema.safeParse(stripModelTimingFields(body)).success).toBe(true);
+  it("returns model timing from /api/decide without dropping the contract fields", async () => {
+    const body = { ...verdict(), modelMs: 40, modelStatus: "ok" as const };
+    expect(decideResponseSchema.safeParse(body).success).toBe(true);
 
     fetchMock.mockResolvedValue(jsonResponse(body));
     const result = await submitDecide(phishing, "nominal");
@@ -134,21 +137,23 @@ describe("client model latency", () => {
     expect(result.modelStatus).toBe("ok");
     if (!result.ok) return;
     expect(result.data.latencyMs).toBe(body.latencyMs);
-    expect(Object.hasOwn(result.data, "modelMs")).toBe(false);
-    expect(Object.hasOwn(result.data, "modelStatus")).toBe(false);
+    expect(result.data.modelMs).toBe(40);
+    expect(result.data.modelStatus).toBe("ok");
   });
 
   it("reports a timeout status without changing the outcome", async () => {
-    const body = {
-      ...verdict({ outcome: "undecided", reason: "timeout", confidence: 0 }),
-      modelMs: 30,
+    const body = verdict({
+      outcome: "undecided",
+      reason: "timeout",
+      confidence: 0,
+      modelMs: null,
       modelStatus: "timeout",
-    };
+    });
     fetchMock.mockResolvedValue(jsonResponse(body, 502));
     const result = await submitDecide(phishing, "nominal");
 
     expect(result.ok).toBe(false);
-    expect(result.modelMs).toBe(30);
+    expect(result.modelMs).toBeNull();
     expect(result.modelStatus).toBe("timeout");
     expect(formatModelCell(result.modelMs ?? null, result.modelStatus ?? null, 95)).toBe(
       "unavailable (timeout)",
@@ -162,14 +167,32 @@ describe("client model latency", () => {
     expect(view.headline).toBe("Undecided");
   });
 
-  it("strips nested timing keys so an arena verdict still parses", () => {
+  it("shows unavailable when the response never attempted a model fetch", async () => {
+    const body = verdict({
+      outcome: "block",
+      reason: "invalid_tool_name",
+      confidence: 0,
+      modelMs: null,
+      modelStatus: null,
+    });
+    expect(decideResponseSchema.safeParse(body).success).toBe(true);
+    fetchMock.mockResolvedValue(jsonResponse(body, 502));
+    const result = await submitDecide(
+      { tab: "mcp", input: { toolName: "send", args: {}, agentContext: "demo" } },
+      "nominal",
+    );
+    expect(result.modelMs).toBeNull();
+    expect(result.modelStatus).toBeNull();
+    expect(formatModelCell(result.modelMs ?? null, result.modelStatus ?? null, 40)).toBe("unavailable");
+  });
+
+  it("leaves arena timing on the verdict and does not read it as the top-level decide body", () => {
     const arena = {
       attack: { prompt: "Hello" },
-      verdict: { ...verdict(), modelMs: 14, modelStatus: "ok" },
+      verdict: { ...verdict(), modelMs: 14, modelStatus: "ok" as const },
       round: 1,
     };
     expect(readModelTiming(arena)).toEqual({ modelMs: null, modelStatus: null });
-    expect(arenaRoundResponseSchema.safeParse(arena).success).toBe(false);
-    expect(arenaRoundResponseSchema.safeParse(stripModelTimingFields(arena)).success).toBe(true);
+    expect(arenaRoundResponseSchema.safeParse(arena).success).toBe(true);
   });
 });
