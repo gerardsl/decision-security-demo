@@ -5,6 +5,7 @@ import { assertSession } from "@/lib/auth";
 import { readDemoFault } from "@/lib/faults";
 import { ApiError, jsonError, readJsonBody } from "@/lib/http";
 import { logDecision } from "@/lib/log";
+import { modelTimingHeaders } from "@/lib/model-timing";
 import { enforceRateLimit } from "@/lib/ratelimit";
 
 export async function POST(request: Request): Promise<Response> {
@@ -23,6 +24,8 @@ export async function POST(request: Request): Promise<Response> {
         outcome: played.verdict.outcome,
         reason: played.verdict.reason,
         latencyMs: Date.now() - started,
+        modelMs: played.verdict.modelMs,
+        modelStatus: played.verdict.modelStatus,
         requestId,
       },
     };
@@ -36,7 +39,10 @@ export async function POST(request: Request): Promise<Response> {
       reason: checked.data.verdict.reason,
       decision: checked.data.verdict.decision.type,
     });
-    return Response.json(checked.data, { status: played.verdict.httpStatus });
+    return Response.json(checked.data, {
+      status: played.verdict.httpStatus,
+      headers: modelTimingHeaders(checked.data.verdict),
+    });
   } catch (error) {
     const apiError = error instanceof ApiError ? error : new ApiError("upstream", "Upstream decision failed.");
     logDecision({

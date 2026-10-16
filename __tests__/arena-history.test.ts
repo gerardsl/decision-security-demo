@@ -11,6 +11,8 @@ function verdict(outcome: DecideResponse["outcome"]): DecideResponse {
     outcome,
     reason: outcome === "allow" ? "ok" : "policy_unsafe",
     latencyMs: 10,
+    modelMs: 8,
+    modelStatus: "ok",
     requestId: REQUEST_ID,
   });
 }

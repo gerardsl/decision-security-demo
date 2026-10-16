@@ -2,6 +2,7 @@ import "server-only";
 import type { DecideRequest } from "@/lib/contract";
 import type { DemoFault } from "@/lib/faults";
 import { ApiError } from "@/lib/http";
+import { NO_MODEL_TIMING, readTimedModelBody, type ModelTiming } from "@/lib/model-timing";
 import { applyPolicy, failureDecision, type SettledDecision } from "@/lib/policy";
 import {
   buildSystemOneRequest,
@@ -27,19 +28,42 @@ const MCP_TOOL_NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 export async function decide(input: DecideRequest, options: DecideOptions = {}): Promise<SettledDecision> {
   if (input.tab === "mcp" && !MCP_TOOL_NAME.test(input.input.toolName)) {
-    return failureDecision(input.tab, "invalid_tool_name");
+    return finish(failureDecision(input.tab, "invalid_tool_name"), NO_MODEL_TIMING);
   }
+  let observed: ModelTiming = NO_MODEL_TIMING;
   try {
     const raw = await loadUpstream(input, options);
-    return applyPolicy(input.tab, parseModelJudgment(input.tab, raw));
+    const timed = readTimedModelBody(raw);
+    observed = timed?.timing ?? NO_MODEL_TIMING;
+    return finish(applyPolicy(input.tab, parseModelJudgment(input.tab, timed ? timed.body : raw)), observed);
   } catch (error) {
     if (error instanceof DecisionCallError) {
-      return failureDecision(input.tab, error.reason === "timeout" ? "timeout" : "upstream_error");
+      const timing: ModelTiming =
+        observed.modelStatus === "ok"
+          ? observed
+          : {
+              modelMs: null,
+              modelStatus: error.reason === "timeout" ? "timeout" : "error",
+            };
+      return finish(
+        failureDecision(input.tab, error.reason === "timeout" ? "timeout" : "upstream_error"),
+        timing,
+      );
     }
-    if (error instanceof InvalidOptionError) return failureDecision(input.tab, "invalid_option");
+    if (error instanceof InvalidOptionError) return finish(failureDecision(input.tab, "invalid_option"), observed);
     if (error instanceof ApiError) throw error;
-    return failureDecision(input.tab, "upstream_error");
+    return finish(
+      failureDecision(input.tab, "upstream_error"),
+      observed.modelStatus === "ok" ? observed : { modelMs: null, modelStatus: "error" },
+    );
   }
+}
+
+function finish(settled: SettledDecision, timing: ModelTiming): SettledDecision {
+  if (timing.modelStatus !== "ok") {
+    return { ...settled, modelMs: null, modelStatus: timing.modelStatus };
+  }
+  return { ...settled, modelMs: timing.modelMs, modelStatus: "ok" };
 }
 
 async function loadUpstream(input: DecideRequest, options: DecideOptions): Promise<unknown> {

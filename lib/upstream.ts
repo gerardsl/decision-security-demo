@@ -1,5 +1,6 @@
 import "server-only";
 import { ClientSecretCredential } from "@azure/identity";
+import { timedModelBody, type TimedModelBody } from "@/lib/model-timing";
 export const DECISION_ENDPOINT =
   "https://decision-gerards-resource.services.ai.azure.com/providers/microsoft/v1/systemone";
 export const AZURE_TENANT_ID = "ad2e140d-9fac-4f68-9aee-70fac41f2ee7";
@@ -54,7 +55,7 @@ export function createDecisionCaller(options?: {
       }
     });
 
-  return async function callDecision(body: unknown): Promise<unknown> {
+  return async function callDecision(body: unknown): Promise<TimedModelBody> {
     let token: string;
     try {
       token = await tokenProvider();
@@ -63,6 +64,8 @@ export function createDecisionCaller(options?: {
       throw new DecisionCallError("upstream");
     }
     const timeout = AbortSignal.timeout(timeoutMs);
+    // Token acquisition stays outside this window. Start immediately before fetch.
+    const started = performance.now();
     let response: Response;
     try {
       response = await fetchImpl(endpoint, {
@@ -81,11 +84,17 @@ export function createDecisionCaller(options?: {
     }
     if (!response.ok) throw new DecisionCallError("upstream");
     try {
-      return await response.json();
-    } catch {
+      const payload = await response.json();
+      return timedModelBody(payload, elapsedSince(started));
+    } catch (error) {
+      if (error instanceof DecisionCallError) throw error;
       throw new DecisionCallError("upstream");
     }
   };
+}
+
+function elapsedSince(started: number): number {
+  return Math.max(0, Math.round(performance.now() - started));
 }
 
 function isTimeout(error: unknown): boolean {

@@ -68,6 +68,73 @@ describe("contract schemas", () => {
     ).toBe(true);
   });
 
+  it("requires a finite modelMs only when the model call succeeded", () => {
+    const timed = verdict({ latencyMs: 40, modelMs: 25, modelStatus: "ok" });
+    expect(decideResponseSchema.safeParse(timed).success).toBe(true);
+    expect(Number.isFinite(timed.modelMs)).toBe(true);
+    expect(timed.modelMs).toBeLessThanOrEqual(timed.latencyMs);
+    expect(
+      decideResponseSchema.safeParse(
+        verdict({
+          outcome: "undecided",
+          reason: "timeout",
+          confidence: 0,
+          latencyMs: 8_000,
+          modelMs: null,
+          modelStatus: "timeout",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      decideResponseSchema.safeParse(
+        verdict({
+          outcome: "block",
+          reason: "upstream_error",
+          confidence: 0,
+          latencyMs: 12,
+          modelMs: null,
+          modelStatus: "error",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      decideResponseSchema.safeParse(
+        verdict({
+          outcome: "undecided",
+          reason: "timeout",
+          confidence: 0,
+          modelMs: 8_000,
+          modelStatus: "timeout",
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      decideResponseSchema.safeParse(
+        verdict({
+          outcome: "block",
+          reason: "upstream_error",
+          confidence: 0,
+          modelMs: 9,
+          modelStatus: "error",
+        }),
+      ).success,
+    ).toBe(false);
+    const absent = verdict({
+      outcome: "block",
+      reason: "invalid_tool_name",
+      confidence: 0,
+      latencyMs: 4,
+      modelMs: null,
+      modelStatus: null,
+    });
+    expect(decideResponseSchema.safeParse(absent).success).toBe(true);
+    expect(absent.modelMs).toBeNull();
+    expect(decideResponseSchema.safeParse(verdict({ modelMs: null, modelStatus: "ok" })).success).toBe(false);
+    expect(decideResponseSchema.safeParse(verdict({ modelMs: 1.5 })).success).toBe(false);
+    expect(decideResponseSchema.safeParse(verdict({ modelStatus: "late" as never })).success).toBe(false);
+    expect(decideResponseSchema.safeParse({ ...verdict(), modelMs: undefined }).success).toBe(false);
+  });
+
   it("requires retryAfterMs on rate-limit errors", () => {
     const requestId = crypto.randomUUID();
     expect(

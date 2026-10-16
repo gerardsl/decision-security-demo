@@ -16,14 +16,20 @@ import { ARENA_ROUND_PATH, CLIENT_TIMEOUT_MS, DECIDE_PATH, PASSCODE_PATH } from 
 import { isArenaLive, isMockEnabled } from "@/lib/flags";
 import { arenaRoundBody, fixtureForRound } from "@/lib/arena-session";
 import { mockArenaRound, mockDecide, mockPasscode, type MockScenario } from "@/lib/mock-api";
+import { readModelTiming, type ModelTiming } from "@/lib/latency";
 import type { TransportResult } from "@/lib/transport";
 
 type Schema<T> = {
   safeParse: (data: unknown) => { success: true; data: T } | { success: false };
 };
 
-function invalidResponse<T>(): TransportResult<T> {
-  return { ok: false, fault: { kind: "http", status: 502, body: null } };
+function invalidResponse<T>(timing: ModelTiming = { modelMs: null, modelStatus: null }): TransportResult<T> {
+  return {
+    ok: false,
+    fault: { kind: "http", status: 502, body: null },
+    modelMs: timing.modelMs,
+    modelStatus: timing.modelStatus,
+  };
 }
 
 async function postJson<T>(path: string, body: unknown, schema: Schema<T>): Promise<TransportResult<T>> {
@@ -49,17 +55,18 @@ async function postJson<T>(path: string, body: unknown, schema: Schema<T>): Prom
         json = null;
       }
     }
+    const timing = readModelTiming(json);
     if (!response.ok) {
-      return { ok: false, fault: { kind: "http", status: response.status, body: json } };
+      return { ok: false, fault: { kind: "http", status: response.status, body: json }, ...timing };
     }
     const parsed = schema.safeParse(json);
-    if (!parsed.success) return invalidResponse();
-    return { ok: true, data: parsed.data };
+    if (!parsed.success) return invalidResponse(timing);
+    return { ok: true, data: parsed.data, ...timing };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      return { ok: false, fault: { kind: "timeout" } };
+      return { ok: false, fault: { kind: "timeout" }, modelMs: null, modelStatus: null };
     }
-    return { ok: false, fault: { kind: "network" } };
+    return { ok: false, fault: { kind: "network" }, modelMs: null, modelStatus: null };
   } finally {
     clearTimeout(timer);
   }
@@ -130,6 +137,16 @@ export async function submitArenaRound(
     verdict: decided.data,
     round: history.length + 1,
   });
-  if (!round.success) return invalidResponse();
-  return { ok: true, data: round.data };
+  if (!round.success) {
+    return invalidResponse({
+      modelMs: decided.modelMs ?? null,
+      modelStatus: decided.modelStatus ?? null,
+    });
+  }
+  return {
+    ok: true,
+    data: round.data,
+    modelMs: decided.modelMs ?? null,
+    modelStatus: decided.modelStatus ?? null,
+  };
 }

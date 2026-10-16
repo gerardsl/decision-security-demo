@@ -103,6 +103,8 @@ describe("guardrail policy", () => {
       confidence: 0,
       httpStatus: 200,
       decision: { type: "yesno", value: false },
+      modelMs: null,
+      modelStatus: null,
     });
     expect(
       decideResponseSchema.safeParse({
@@ -111,6 +113,8 @@ describe("guardrail policy", () => {
         outcome: blocked.outcome,
         reason: blocked.reason,
         latencyMs: 1,
+        modelMs: null,
+        modelStatus: null,
         requestId: crypto.randomUUID(),
       }).success,
     ).toBe(true);

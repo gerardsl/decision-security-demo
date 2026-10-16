@@ -34,6 +34,8 @@ export function verdict(overrides: Partial<DecideResponse> = {}): DecideResponse
     outcome: "allow",
     reason: "ok",
     latencyMs: 12,
+    modelMs: 8,
+    modelStatus: "ok",
     requestId: crypto.randomUUID(),
     ...overrides,
   };

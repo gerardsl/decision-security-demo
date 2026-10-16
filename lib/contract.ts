@@ -209,6 +209,14 @@ export const decisionSchema = z.discriminatedUnion("type", [
 ]);
 
 export const outcomeSchema = z.enum(["allow", "block", "undecided"]);
+
+/**
+ * Transport outcome of the upstream Decision-1 fetch.
+ * `ok` means the response body was fully read. `timeout` and `error` are call
+ * failures. Null means the server never attempted that fetch.
+ */
+export const modelStatusSchema = z.enum(["ok", "error", "timeout"]);
+
 export const decisionReasonSchema = z.enum([
   "policy_unsafe",
   "low_confidence",
@@ -227,7 +235,22 @@ export const decideResponseSchema = z
     rationale: z.string().max(LIMITS.rationale).optional(),
     outcome: outcomeSchema,
     reason: decisionReasonSchema,
+    /** Handler total, from the start of the route. Unchanged by model timing. */
     latencyMs: z.number().nonnegative(),
+    /**
+     * Integer milliseconds for a successful upstream Decision-1 fetch: from just
+     * before `fetch` until the response body is fully read. Excludes token
+     * acquisition, input validation, and rate-limit checks. Null unless
+     * `modelStatus` is `"ok"`. Error and timeout responses do not report the
+     * elapsed time.
+     *
+     * Mock mode (`lib/mock-api.ts`) reports a simulated finite duration at or
+     * below `latencyMs` when the simulated status is `"ok"`, and null when
+     * that status is `"error"` or `"timeout"`.
+     */
+    modelMs: z.number().int().nonnegative().nullable(),
+    /** See `modelStatusSchema`. Null when no Decision-1 fetch was attempted. */
+    modelStatus: modelStatusSchema.nullable(),
     requestId: z.string().uuid(),
   })
   .strict()
@@ -244,6 +267,21 @@ export const decideResponseSchema = z
         code: "custom",
         path: ["reason"],
         message: "Only an allow outcome uses reason ok.",
+      });
+    }
+    if (value.modelStatus === "ok") {
+      if (typeof value.modelMs !== "number" || !Number.isFinite(value.modelMs)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["modelMs"],
+          message: "A successful model call includes a finite modelMs.",
+        });
+      }
+    } else if (value.modelMs !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["modelMs"],
+        message: "modelMs is null unless modelStatus is ok.",
       });
     }
   });
@@ -348,6 +386,7 @@ export type ChoiceDecision = z.infer<typeof choiceDecisionSchema>;
 export type ScoreDecision = z.infer<typeof scoreDecisionSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
 export type Outcome = z.infer<typeof outcomeSchema>;
+export type ModelStatus = z.infer<typeof modelStatusSchema>;
 export type DecisionReason = z.infer<typeof decisionReasonSchema>;
 export type DecideResponse = z.infer<typeof decideResponseSchema>;
 export type ErrorCode = z.infer<typeof errorCodeSchema>;

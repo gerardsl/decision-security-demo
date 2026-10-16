@@ -131,6 +131,22 @@ function placeholderDecision(tab: Tab): Decision {
   }
 }
 
+/**
+ * Mock mode does not call Decision-1. A simulated `"ok"` call reports a finite
+ * `modelMs` at or below `latencyMs`. `"error"` and `"timeout"` leave `modelMs`
+ * null, matching the live contract.
+ */
+function simulatedModel(reason: DecisionReason): {
+  latencyMs: number;
+  modelMs: number | null;
+  modelStatus: DecideResponse["modelStatus"];
+} {
+  if (reason === "timeout") return { latencyMs: 30_000, modelMs: null, modelStatus: "timeout" };
+  if (reason === "upstream_error") return { latencyMs: 48, modelMs: null, modelStatus: "error" };
+  if (reason === "invalid_option") return { latencyMs: 48, modelMs: 36, modelStatus: "ok" };
+  return { latencyMs: 48, modelMs: null, modelStatus: null };
+}
+
 function failureBody(tab: Tab, reason: DecisionReason): DecideResponse {
   const closed = tabPolicy[tab].failMode === "closed";
   return decideResponseSchema.parse({
@@ -139,7 +155,7 @@ function failureBody(tab: Tab, reason: DecisionReason): DecideResponse {
     rationale: `Synthetic mock failure for ${tab}. The service settled reason ${reason} without copying a model label.`,
     outcome: closed ? "block" : "undecided",
     reason,
-    latencyMs: reason === "timeout" ? 30_000 : 48,
+    ...simulatedModel(reason),
     requestId: requestId(),
   });
 }
@@ -250,13 +266,16 @@ function settle(tab: Tab, decision: Decision, confidence: number): DecideRespons
     outcome = "block";
     reason = tab === "dlp" ? "score_threshold" : "policy_unsafe";
   }
+  const slow = confidence < CONFIDENCE_THRESHOLD;
   return decideResponseSchema.parse({
     decision,
     confidence,
     rationale: rationaleFor(tab, decision),
     outcome,
     reason,
-    latencyMs: confidence < CONFIDENCE_THRESHOLD ? 240 : 160,
+    latencyMs: slow ? 240 : 160,
+    modelMs: slow ? 180 : 120,
+    modelStatus: "ok",
     requestId: requestId(),
   });
 }

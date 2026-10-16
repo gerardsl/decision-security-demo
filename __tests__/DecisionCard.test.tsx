@@ -5,8 +5,15 @@ import { decideResponseSchema, type DecideResponse } from "@/lib/contract";
 
 const REQUEST_ID = "11111111-1111-4111-8111-111111111111";
 
-function response(partial: DecideResponse): DecideResponse {
-  return decideResponseSchema.parse(partial);
+function response(
+  partial: Omit<DecideResponse, "modelMs" | "modelStatus"> &
+    Partial<Pick<DecideResponse, "modelMs" | "modelStatus">>,
+): DecideResponse {
+  return decideResponseSchema.parse({
+    modelMs: 1,
+    modelStatus: "ok",
+    ...partial,
+  });
 }
 
 describe("DecisionCard", () => {

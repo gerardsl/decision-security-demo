@@ -29,6 +29,8 @@ function yesNo(options: {
     outcome: options.outcome,
     reason: options.reason,
     latencyMs: 50,
+    modelMs: 20,
+    modelStatus: "ok",
     requestId: REQUEST_ID,
   });
 }
@@ -194,6 +196,8 @@ describe("decision status presentation", () => {
         outcome: "allow",
         reason: "ok",
         latencyMs: 20,
+        modelMs: 10,
+        modelStatus: "ok",
         requestId: REQUEST_ID,
       }),
     });
@@ -212,6 +216,8 @@ describe("decision status presentation", () => {
         outcome: "undecided",
         reason: "low_confidence",
         latencyMs: 20,
+        modelMs: 10,
+        modelStatus: "ok",
         requestId: REQUEST_ID,
       }),
     });

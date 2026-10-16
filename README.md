@@ -49,11 +49,19 @@ Success body:
     | "invalid_tool_name"
     | "ok",
   latencyMs: number,
+  modelMs: number | null,
+  modelStatus: "ok" | "error" | "timeout" | null,
   requestId: string
 }
 ```
 
 `outcome` is `allow` only when `reason` is `ok`. Choice `options`, score `min` / `max` (0 and 4), and the DLP cutoff (`DLP_BLOCK_SCORE`, 2) come from the server templates. `decision.probabilities` is the per-option or per-level map from the model, with keys limited to those templates. Option `score`, when present, is that option's probability from 0 through 1. Score `value` is a float, including values between levels such as `2.97`.
+
+`latencyMs` is the handler total from the start of the route, including validation, rate limiting, and token acquisition. `modelMs` is a separate integer: milliseconds from just before the Decision-1 `fetch` until the response body is fully read (`performance.now()`). It does not include the token request. `modelStatus` is `"ok"` when that body was read, including when a later policy check rejects the answer, and `modelMs` is then a finite integer. `modelMs` is `null` when `modelStatus` is `"error"`, `"timeout"`, or null. A token failure before `fetch` is `modelMs: null` and `modelStatus: "error"`. `modelStatus` is `null` when no fetch was attempted and the result is not a transport failure (`invalid_tool_name`, and faults such as `lowconf`, `badoption`, and `badlegend`). Injected `timeout` and `upstream` faults skip the fetch, so `modelMs` stays `null` and `modelStatus` is `"timeout"` or `"error"`.
+
+A decide body whose `modelStatus` is `"ok"` sends `Server-Timing: model;dur=<ms>` on `POST /api/decide` and `POST /api/arena/round`. The duration is `modelMs`. Error, timeout, and no-fetch responses omit that header. The header does not repeat the server total. The browser measures that itself.
+
+Mock mode (`NEXT_PUBLIC_USE_MOCK=1`) does not call Decision-1. When the simulated status is `"ok"`, `lib/mock-api.ts` reports a simulated finite `modelMs` at or below `latencyMs`. When that status is `"error"` or `"timeout"`, `modelMs` is null.
 
 HTTP status for `POST /api/decide` and `POST /api/arena/round`:
 
@@ -70,7 +78,7 @@ HTTP status for `POST /api/decide` and `POST /api/arena/round`:
 | Missing or invalid session cookie | 401 | Bare `{ error: { code: "unauthorized", message }, requestId }` |
 | Rate limit, or the rate-limit store is unavailable | 429 | `{ error: { code: "rate_limited", message }, requestId, retryAfterMs }` |
 
-A decide body is `decision`, `confidence`, `outcome`, `reason`, `latencyMs`, and `requestId`. Timeout, upstream failure, a malformed answer, and an invalid option use HTTP 502 with that body, not the error envelope. Treat `mcp`, `dlp`, and `arena` as blocked when `outcome` is `block`.
+A decide body is `decision`, `confidence`, `outcome`, `reason`, `latencyMs`, `modelMs`, `modelStatus`, and `requestId`. Timeout, upstream failure, a malformed answer, and an invalid option use HTTP 502 with that body, not the error envelope. Treat `mcp`, `dlp`, and `arena` as blocked when `outcome` is `block`.
 
 `POST /api/arena/round`
 
