@@ -1,6 +1,14 @@
 import { beforeEach, vi } from "vitest";
 import { resetMemoryRateLimitsForTests } from "@/lib/ratelimit";
-import { ATTACKER_API_KEY, AZURE_CLIENT_SECRET, DEMO_PASSCODE, SESSION_SECRET } from "@/tests/helpers";
+import {
+  ATTACKER_API_KEY,
+  AZURE_CLIENT_ID,
+  AZURE_CLIENT_SECRET,
+  AZURE_TENANT_ID,
+  DECISION_ENDPOINT,
+  DEMO_PASSCODE,
+  SESSION_SECRET,
+} from "@/tests/helpers";
 
 vi.mock("@upstash/redis", () => ({
   Redis: class Redis {
@@ -50,6 +58,9 @@ vi.mock("@upstash/ratelimit", async () => {
 beforeEach(() => {
   process.env.SESSION_SECRET = SESSION_SECRET;
   process.env.DEMO_PASSCODE = DEMO_PASSCODE;
+  process.env.DECISION_ENDPOINT = DECISION_ENDPOINT;
+  process.env.AZURE_TENANT_ID = AZURE_TENANT_ID;
+  process.env.AZURE_CLIENT_ID = AZURE_CLIENT_ID;
   process.env.AZURE_CLIENT_SECRET = AZURE_CLIENT_SECRET;
   process.env.ATTACKER_API_KEY = ATTACKER_API_KEY;
   delete process.env.UPSTASH_REDIS_REST_URL;

@@ -4,6 +4,9 @@ import { createSessionValue, SESSION_COOKIE } from "@/lib/session";
 export const SESSION_SECRET = "test-session-secret-0123456789";
 export const DEMO_PASSCODE = "correct-passcode";
 export const AZURE_CLIENT_SECRET = "azure-client-secret-value";
+export const AZURE_TENANT_ID = "00000000-0000-4000-8000-000000000001";
+export const AZURE_CLIENT_ID = "00000000-0000-4000-8000-000000000002";
+export const DECISION_ENDPOINT = "https://decision.example.test/providers/microsoft/v1/systemone";
 export const ATTACKER_API_KEY = "attacker-api-key-value";
 
 export function sessionCookie(secret = SESSION_SECRET): string {

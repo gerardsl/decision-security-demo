@@ -1,10 +1,6 @@
 import "server-only";
 import { ClientSecretCredential } from "@azure/identity";
 import { timedModelBody, type TimedModelBody } from "@/lib/model-timing";
-export const DECISION_ENDPOINT =
-  "https://decision-gerards-resource.services.ai.azure.com/providers/microsoft/v1/systemone";
-export const AZURE_TENANT_ID = "ad2e140d-9fac-4f68-9aee-70fac41f2ee7";
-export const AZURE_CLIENT_ID = "2192e580-1cd5-4d11-978a-e668270f3f04";
 export const AZURE_SCOPE = "https://cognitiveservices.azure.com/.default";
 export const UPSTREAM_TIMEOUT_MS = 8_000;
 
@@ -21,16 +17,32 @@ export class DecisionCallError extends Error {
 export type TokenProvider = () => Promise<string>;
 
 let cachedCredential: ClientSecretCredential | undefined;
-let cachedSecret: string | undefined;
+let cachedCredentialKey: string | undefined;
 
 function credential(): ClientSecretCredential {
+  const tenantId = process.env.AZURE_TENANT_ID;
+  const clientId = process.env.AZURE_CLIENT_ID;
   const secret = process.env.AZURE_CLIENT_SECRET;
-  if (!secret) throw new DecisionCallError("upstream");
-  if (!cachedCredential || cachedSecret !== secret) {
-    cachedCredential = new ClientSecretCredential(AZURE_TENANT_ID, AZURE_CLIENT_ID, secret);
-    cachedSecret = secret;
+  if (!tenantId || !clientId || !secret) throw new DecisionCallError("upstream");
+  const key = JSON.stringify([tenantId, clientId, secret]);
+  if (!cachedCredential || cachedCredentialKey !== key) {
+    cachedCredential = new ClientSecretCredential(tenantId, clientId, secret);
+    cachedCredentialKey = key;
   }
   return cachedCredential;
+}
+
+function decisionEndpoint(configured = process.env.DECISION_ENDPOINT): string {
+  if (!configured) throw new DecisionCallError("upstream");
+  let url: URL;
+  try {
+    url = new URL(configured);
+  } catch {
+    throw new DecisionCallError("upstream");
+  }
+  // The bearer token goes to this URL, so anything other than https is refused.
+  if (url.protocol !== "https:") throw new DecisionCallError("upstream");
+  return url.href;
 }
 
 export function createDecisionCaller(options?: {
@@ -41,7 +53,6 @@ export function createDecisionCaller(options?: {
 }) {
   const fetchImpl = options?.fetchImpl ?? fetch;
   const timeoutMs = options?.timeoutMs ?? UPSTREAM_TIMEOUT_MS;
-  const endpoint = options?.endpoint ?? DECISION_ENDPOINT;
   const tokenProvider =
     options?.tokenProvider ??
     (async () => {
@@ -56,8 +67,10 @@ export function createDecisionCaller(options?: {
     });
 
   return async function callDecision(body: unknown): Promise<TimedModelBody> {
+    let endpoint: string;
     let token: string;
     try {
+      endpoint = decisionEndpoint(options?.endpoint);
       token = await tokenProvider();
     } catch (error) {
       if (error instanceof DecisionCallError) throw error;

@@ -3,9 +3,34 @@ import { describe, expect, it, vi } from "vitest";
 import { logDecision } from "@/lib/log";
 import { chooseRateLimitBackend, clientIp, enforceRateLimit, resolveRedisCredentials } from "@/lib/ratelimit";
 import { SESSION_COOKIE, createSessionValue } from "@/lib/session";
-import { DECISION_ENDPOINT, DecisionCallError, createDecisionCaller } from "@/lib/upstream";
-import { SESSION_SECRET } from "@/tests/helpers";
+import { DecisionCallError, createDecisionCaller } from "@/lib/upstream";
+import { AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, DECISION_ENDPOINT, SESSION_SECRET } from "@/tests/helpers";
 import { redisMock } from "@/tests/redis-mock-state";
+
+const identity = vi.hoisted(() => ({ credentials: [] as string[][], tokenRequests: 0 }));
+
+vi.mock("@azure/identity", () => ({
+  ClientSecretCredential: class ClientSecretCredential {
+    constructor(tenantId: string, clientId: string, secret: string) {
+      identity.credentials.push([tenantId, clientId, secret]);
+    }
+
+    async getToken() {
+      identity.tokenRequests += 1;
+      return { token: "TEST_BEARER_TOKEN_VALUE", expiresOnTimestamp: Date.now() + 60_000 };
+    }
+  },
+}));
+
+type FetchMock = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+const UNUSABLE_SETTINGS: [string, string | undefined][] = [
+  ["DECISION_ENDPOINT", undefined],
+  ["DECISION_ENDPOINT", "http://decision.example.test/providers/microsoft/v1/systemone"],
+  ["DECISION_ENDPOINT", "not a url"],
+  ["AZURE_TENANT_ID", undefined],
+  ["AZURE_CLIENT_ID", undefined],
+];
 
 const FIXED_SID = "0123456789abcdef0123456789abcdef";
 
@@ -69,6 +94,26 @@ describe("decision upstream", () => {
     } catch (error) {
       expect((error as Error).message).toBe("upstream");
     }
+  });
+
+  it("calls DECISION_ENDPOINT with a credential built from the Entra settings in the environment", async () => {
+    const fetchImpl = vi.fn<FetchMock>(async () => new Response("", { status: 500 }));
+    await expect(createDecisionCaller({ fetchImpl })({})).rejects.toMatchObject({ reason: "upstream" });
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(DECISION_ENDPOINT);
+    expect(new Headers(fetchImpl.mock.calls[0]?.[1]?.headers).get("authorization")).toBe(
+      "Bearer TEST_BEARER_TOKEN_VALUE",
+    );
+    expect(identity.credentials.at(-1)).toEqual([AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET]);
+  });
+
+  it.each(UNUSABLE_SETTINGS)("fails closed without a token or fetch when %s is %s", async (name, value) => {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+    const tokenRequests = identity.tokenRequests;
+    const fetchImpl = vi.fn<FetchMock>(async () => new Response("{}", { status: 200 }));
+    await expect(createDecisionCaller({ fetchImpl })({})).rejects.toMatchObject({ reason: "upstream" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(identity.tokenRequests).toBe(tokenRequests);
   });
 });
 

@@ -132,6 +132,9 @@ Copy `.env.example` for the variable names. Values are set in Vercel, never comm
 
 | Name | Purpose |
 | --- | --- |
+| `DECISION_ENDPOINT` | Decision-1 System One URL (`https`), such as `https://<resource>.services.ai.azure.com/providers/microsoft/v1/systemone`. |
+| `AZURE_TENANT_ID` | Entra tenant id of the app registration that calls Decision-1. |
+| `AZURE_CLIENT_ID` | Client id of that app registration. |
 | `AZURE_CLIENT_SECRET` | Entra client secret for Decision-1. The only Decision-1 secret. |
 | `UPSTASH_REDIS_REST_URL` | Shared rate-limit storage. |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token. |
@@ -145,9 +148,9 @@ Copy `.env.example` for the variable names. Values are set in Vercel, never comm
 | `ATTACKER_API_KEY` | Attacker credential. Must differ from `AZURE_CLIENT_SECRET`. |
 | `ATTACKER_MODEL` | Attacker model or deployment name. |
 
-Required in Vercel for a working demo: `AZURE_CLIENT_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `DEMO_PASSCODE`, and `SESSION_SECRET`. Without Upstash the API fails closed with 429. The attacker variables are required only when `ARENA_LIVE_ATTACKER=1`.
+Required in Vercel for a working demo: `DECISION_ENDPOINT`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `DEMO_PASSCODE`, and `SESSION_SECRET`. Without Upstash the API fails closed with 429. The attacker variables are required only when `ARENA_LIVE_ATTACKER=1`.
 
-Decision-1 endpoint, deployment name (`Decision-1`), tenant id, and client id are fixed in `lib/upstream.ts`. They are resource identifiers, not secrets. The client secret and access token are never logged or returned.
+The deployment name (`Decision-1`) is fixed in code. The endpoint, tenant id, and client id come from the environment. They are resource identifiers, not secrets. If any of the four Decision-1 variables is missing, or `DECISION_ENDPOINT` is not an `https` URL, every decision returns `upstream_error` without requesting a token or calling the endpoint. The client secret and access token are never logged or returned.
 
 ## Frontend
 
@@ -176,7 +179,7 @@ GitHub Actions runs lint, typecheck, tests, and build.
 
 ## Upstream
 
-Decision-1 is called at `POST https://decision-gerards-resource.services.ai.azure.com/providers/microsoft/v1/systemone` with Microsoft Entra ID (`ClientSecretCredential`, scope `https://cognitiveservices.azure.com/.default`). The credential object caches and refreshes tokens. The request uses the published System One shape from the Foundry how-to and the Databricks System One reference: `model`, `state`, and one typed question (`noul`, `choice`, or `score`). User text is only in `state`, inside `<<<UNTRUSTED_DATA>>>` markers. The question `instructions` are fixed templates.
+Decision-1 is called at `POST $DECISION_ENDPOINT` with Microsoft Entra ID (`ClientSecretCredential` from `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`, scope `https://cognitiveservices.azure.com/.default`). The credential object caches and refreshes tokens. The request uses the published System One shape from the Foundry how-to and the Databricks System One reference: `model`, `state`, and one typed question (`noul`, `choice`, or `score`). User text is only in `state`, inside `<<<UNTRUSTED_DATA>>>` markers. The question `instructions` are fixed templates.
 
 Observed response shapes, parsed by named fields only (extra fields are ignored):
 
