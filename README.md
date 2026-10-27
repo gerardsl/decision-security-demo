@@ -189,3 +189,7 @@ Observed response shapes, parsed by named fields only (extra fields are ignored)
 - The response `model` is `microsoft-decision-1` and is not checked against the deployment name. The request still sends `model: "Decision-1"`. A differently named deployment will fail the call.
 
 The separate arena attacker is not deployed. `ARENA_LIVE_ATTACKER=1` assumes an OpenAI-compatible chat-completions endpoint, sends no tools, and uses only `ATTACKER_*` credentials. See the TODO in `lib/attacker.ts`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
